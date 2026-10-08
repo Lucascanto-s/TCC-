@@ -72,6 +72,12 @@ st.markdown(
     .insight-box, .academic-box { border: 1px solid #cbd5e1; border-left: 6px solid #059669; background: #f5f7fa; color: #111111; padding: 14px 16px; font-size: 18px; line-height: 1.35; margin: 8px 0 14px; }
     .academic-box { border-left-color: #1d4ed8; }
     .secondary-note { color: #111111; font-size: 18px; line-height: 1.3; margin: 8px 0; overflow-wrap: anywhere; }
+    .chart-selector-label { color: #0f172a; font-size: 18px; font-weight: 700; margin: 4px 0 6px; }
+    [data-testid="stRadio"] [role="radiogroup"] { gap: 8px; flex-wrap: wrap; }
+    [data-testid="stRadio"] label { min-height: 48px; padding: 12px 16px !important; border: 1px solid #cbd5e1; border-radius: 8px; background: #f5f7fa; color: #111111 !important; font-size: 18px !important; font-weight: 600; }
+    [data-testid="stRadio"] label:has(input:checked) { background: #1d4ed8 !important; color: #ffffff !important; border-color: #1d4ed8 !important; }
+    [data-testid="stRadio"] label:has(input:checked) p { color: #ffffff !important; }
+    [data-testid="stRadio"] label p { color: #111111 !important; font-size: 18px !important; }
     @media (max-width: 700px) { .hero { padding: 1.25rem; } .kpi-value { font-size: 2rem; } }
     </style>
     """,
@@ -240,7 +246,7 @@ def abreviar_rotulo(valor: object, limite: int = 32) -> str:
             linha = f"{linha} {palavra}".strip()
     if linha:
         linhas.append(linha)
-    return "<br>".join(linhas[:3]) + ("..." if len(linhas) > 3 else "")
+    return "<br>".join(linhas[:3])
 
 
 def card_metricas(respostas: pd.DataFrame) -> None:
@@ -292,7 +298,7 @@ def grafico_pergunta_principal(respostas: pd.DataFrame) -> go.Figure:
     """Constrói automaticamente a melhor visualização legível para respostas categóricas."""
     cores = [COLORS["orange"] if indice == 0 else COLORS["blue"] for indice in range(len(respostas))]
     rotulos = respostas["resposta"].map(abreviar_rotulo)
-    figura = go.Figure(go.Bar(x=respostas["quantidade"], y=rotulos, orientation="h", marker=dict(color=cores, line=dict(color="white", width=1)), text=respostas.apply(lambda linha: f"{linha['quantidade']} · {linha['percentual']:.1f}%", axis=1), textfont=dict(size=18, color=COLORS["text"], family="DM Sans"), textposition="outside", customdata=respostas[["resposta", "percentual"]], hovertemplate="<b>%{customdata[0]}</b><br>Respostas: %{x}<br>Percentual: %{customdata[1]:.1f}%<extra></extra>"))
+    figura = go.Figure(go.Bar(x=respostas["percentual"], y=rotulos, orientation="h", marker=dict(color=cores, line=dict(color="white", width=1)), text=respostas["percentual"].map(lambda valor: f"{valor:.1f}%"), textfont=dict(size=18, color=COLORS["text"], family="DM Sans"), textposition="outside", customdata=respostas[["resposta", "quantidade"]], hovertemplate="<b>%{customdata[0]}</b><br>Respostas: %{customdata[1]}<br>Percentual: %{x:.1f}%<extra></extra>"))
     dominante = respostas.iloc[0]
     figura.update_layout(title=f"{dominante['percentual']:.1f}%: {dominante['resposta']}", showlegend=False)
     figura.update_yaxes(autorange="reversed")
@@ -310,6 +316,80 @@ def grafico_donut(respostas: pd.DataFrame) -> go.Figure:
     figura = go.Figure(go.Pie(labels=principais["resposta"].map(lambda valor: abreviar_rotulo(valor, 24)), values=principais["quantidade"], hole=.62, marker=dict(colors=GRAPH_PALETTE[:len(principais)], line=dict(color="white", width=2)), textposition="outside", textinfo="label+percent", textfont=dict(size=16, color=COLORS["text"]), customdata=principais["resposta"], hovertemplate="<b>%{customdata}</b><br>Respostas: %{value}<br>Percentual: %{percent}<extra></extra>"))
     figura.update_layout(title=f"{dominante['percentual']:.1f}%: {dominante['resposta']}", showlegend=False, annotations=[dict(text=f"{dominante['percentual']:.1f}%", x=.5, y=.5, font=dict(size=28, color=COLORS["title"]), showarrow=False)])
     return apply_layout(figura, 500)
+
+
+def pergunta_ordenada(coluna: str, respostas: pd.DataFrame) -> bool:
+    """Define se linha, área e dispersão possuem uma ordem interpretável."""
+    valores = respostas["resposta"].map(normalizar_nome)
+    prefixos = ("nao_utilizo", "raramente", "as_vezes", "frequentemente", "sempre")
+    return coluna in {"pergunta_1", "pergunta_4"} or valores.map(lambda valor: any(valor.startswith(prefixo) for prefixo in prefixos)).all()
+
+
+def opcoes_grafico(coluna: str, respostas: pd.DataFrame, multipla: bool) -> list[str]:
+    """Retorna apenas os tipos coerentes com a pergunta atual."""
+    tipos = ["📊 Barras horizontais", "▥ Barras verticais"]
+    if not multipla:
+        tipos.append("◉ Donut")
+    if pergunta_ordenada(coluna, respostas):
+        tipos.extend(["╱ Linha", "▰ Área", "✦ Dispersão com tendência"])
+    return tipos
+
+
+def grafico_barras_verticais(respostas: pd.DataFrame) -> go.Figure:
+    """Barras verticais com rótulos quebrados e valores percentuais."""
+    rotulos = respostas["resposta"].map(lambda valor: abreviar_rotulo(valor, 18))
+    figura = go.Figure(go.Bar(x=rotulos, y=respostas["percentual"], marker=dict(color=[COLORS["orange"] if indice == 0 else COLORS["blue"] for indice in range(len(respostas))]), text=respostas["percentual"].map(lambda valor: f"{valor:.1f}%"), textfont=dict(size=18, color=COLORS["text"]), textposition="outside", customdata=respostas["resposta"], hovertemplate="<b>%{customdata}</b><br>Percentual: %{y:.1f}%<extra></extra>"))
+    figura.update_layout(title=f"{respostas.iloc[0]['percentual']:.1f}%: {respostas.iloc[0]['resposta']}", showlegend=False)
+    figura.update_xaxes(tickangle=0, title="Categoria")
+    figura.update_yaxes(range=[0, 100], ticksuffix="%", title="Percentual de respondentes")
+    return apply_layout(figura, max(440, min(700, 300 + len(respostas) * 36)))
+
+
+def grafico_linha_area(respostas: pd.DataFrame, area: bool = False) -> go.Figure:
+    """Linha ou área com pontos legíveis para escalas ordenadas."""
+    rotulos = respostas["resposta"].map(lambda valor: abreviar_rotulo(valor, 18))
+    trace = go.Scatter(x=rotulos, y=respostas["percentual"], mode="lines+markers+text", text=respostas["percentual"].map(lambda valor: f"{valor:.1f}%"), textposition="top center", textfont=dict(size=18, color=COLORS["text"]), line=dict(color=COLORS["blue"], width=4), marker=dict(size=10, color=COLORS["orange"]), fill="tozeroy" if area else None, fillcolor="rgba(29,78,216,.16)" if area else None, customdata=respostas["resposta"], hovertemplate="<b>%{customdata}</b><br>Percentual: %{y:.1f}%<extra></extra>")
+    figura = go.Figure(trace)
+    figura.update_layout(title="Tendência das respostas", showlegend=False)
+    figura.update_yaxes(range=[0, 100], ticksuffix="%", title="Percentual de respondentes")
+    return apply_layout(figura, 500)
+
+
+def grafico_dispersao_tendencia(respostas: pd.DataFrame) -> go.Figure:
+    """Scatter Plot com OLS, selo de direção, R² e equação."""
+    dados = respostas.reset_index(drop=True).copy()
+    dados["ordem"] = range(1, len(dados) + 1)
+    figura = px.scatter(dados, x="ordem", y="percentual", trendline="ols", title="Relação entre ordem e percentual", labels={"ordem": "Ordem da escala", "percentual": "Percentual (%)"}, hover_data={"resposta": True, "ordem": False, "percentual": ":.1f"})
+    resultados = px.get_trendline_results(figura)
+    slope, pvalue, r2, equacao = 0.0, 1.0, 0.0, "y = 0.00x + 0.00"
+    if not resultados.empty:
+        modelo = resultados.iloc[0]["px_fit_results"]
+        slope = float(modelo.params[1])
+        pvalue = float(modelo.pvalues[1])
+        r2 = float(modelo.rsquared)
+        equacao = f"y = {slope:.2f}x + {float(modelo.params[0]):.2f}"
+    status = "▲ Tendência crescente" if slope > .05 and pvalue <= .05 else "▼ Tendência decrescente" if slope < -.05 and pvalue <= .05 else "▬ Tendência estável"
+    cor = COLORS["green"] if status.startswith("▲") else COLORS["red"] if status.startswith("▼") else COLORS["charcoal"]
+    figura.update_traces(marker=dict(size=12, color=COLORS["blue"]), selector=dict(mode="markers"))
+    figura.update_traces(line=dict(width=4, color=COLORS["orange"]), selector=dict(mode="lines"))
+    figura.add_annotation(x=.02, y=1.14, xref="paper", yref="paper", text=f"{status} · R² = {r2:.2f} · {equacao} · p = {pvalue:.3f}", showarrow=False, font=dict(size=18, color=cor))
+    figura.update_yaxes(range=[0, 100], ticksuffix="%")
+    return apply_layout(figura, 500)
+
+
+def grafico_principal_por_tipo(respostas: pd.DataFrame, tipo: str) -> go.Figure:
+    """Seleciona a figura sem oferecer configuração visual avançada."""
+    if tipo == "▥ Barras verticais":
+        return grafico_barras_verticais(respostas)
+    if tipo == "◉ Donut":
+        return grafico_donut(respostas)
+    if tipo == "╱ Linha":
+        return grafico_linha_area(respostas)
+    if tipo == "▰ Área":
+        return grafico_linha_area(respostas, area=True)
+    if tipo == "✦ Dispersão com tendência":
+        return grafico_dispersao_tendencia(respostas)
+    return grafico_pergunta_principal(respostas)
 
 
 def percentual(dataframe: pd.DataFrame, coluna: str) -> pd.DataFrame:
@@ -434,14 +514,14 @@ def pagina_frequencia(dataframe: pd.DataFrame) -> None:
         grafico(px.bar(resumo, x="resposta", y="quantidade", text=resumo["percentual"].map(lambda x: f"{x:.1f}%"), color="resposta", color_discrete_sequence=[COLORS["blue"], COLORS["sky"], COLORS["purple"], "#CBD5E1"], title="Frequência declarada").update_traces(textposition="outside").update_layout(showlegend=False))
     with col2:
         grafico(px.pie(resumo, names="resposta", values="quantidade", hole=.55, color_discrete_sequence=[COLORS["blue"], COLORS["sky"], COLORS["purple"], "#CBD5E1"], title="Composição percentual"))
-    st.dataframe(resumo.rename(columns={"resposta": "Frequência", "quantidade": "Respostas", "percentual": "%"}), use_container_width=True, hide_index=True)
+    st.dataframe(resumo.rename(columns={"resposta": "Frequência", "quantidade": "Respostas", "percentual": "%"}), width="stretch", hide_index=True)
 
 
 def pagina_finalidade(dataframe: pd.DataFrame) -> None:
     titulo("Finalidade de Utilização da IA", "Ranking das atividades em que os estudantes recorrem às ferramentas de inteligência artificial.")
     resumo = percentual(dataframe, "finalidade").sort_values("quantidade")
     grafico(px.bar(resumo, x="quantidade", y="resposta", orientation="h", text=resumo["percentual"].map(lambda x: f"{x:.1f}%"), color="quantidade", color_continuous_scale=["#c4b5fd", COLORS["purple"]], title="Ranking de finalidades").update_traces(textposition="outside").update_layout(coloraxis_showscale=False))
-    st.dataframe(resumo.sort_values("quantidade", ascending=False).rename(columns={"resposta": "Finalidade", "quantidade": "Respostas", "percentual": "%"}), use_container_width=True, hide_index=True)
+    st.dataframe(resumo.sort_values("quantidade", ascending=False).rename(columns={"resposta": "Finalidade", "quantidade": "Respostas", "percentual": "%"}), width="stretch", hide_index=True)
 
 
 def pagina_plataformas(dataframe: pd.DataFrame) -> None:
@@ -509,29 +589,37 @@ def pagina_perguntas(dataframe: pd.DataFrame) -> None:
         return
     card_metricas(respostas)
     insight, academica = gerar_insights(respostas, perguntas[escolhida])
-    esquerda, direita = st.columns([1.6, 1])
-    with esquerda:
-        grafico(grafico_pergunta_principal(respostas))
-    with direita:
-        if multipla:
-            st.markdown("<h3>Insight automático</h3>", unsafe_allow_html=True)
-            st.markdown(f"<div class='insight-box'>{insight}</div>", unsafe_allow_html=True)
-        else:
-            grafico(grafico_donut(respostas), margem=(260, 120, 100, 120))
-            st.markdown(f"<div class='insight-box'>{insight}</div>", unsafe_allow_html=True)
-        if notas:
-            nota = "<br>".join(f"<b>{item['curto']}</b>: {item['completo']}" for item in notas)
-            st.markdown(f"<div class='secondary-note'><b>Texto completo das respostas:</b><br>{nota}</div>", unsafe_allow_html=True)
-    aba_insights, aba_tabela = st.tabs(["Insights e interpretação acadêmica", "Tabela resumida"])
+    aba_visualizacoes, aba_insights, aba_tabela = st.tabs(["Visualizações", "Insights e interpretação", "Dados detalhados"])
+    with aba_visualizacoes:
+        tipos = opcoes_grafico(escolhida, respostas, multipla)
+        escolhas_grafico = st.session_state.setdefault("tipos_grafico_por_pergunta", {})
+        if escolhas_grafico.get(escolhida) not in tipos:
+            escolhas_grafico[escolhida] = tipos[0]
+        st.markdown("<div class='chart-selector-label'>Tipo de gráfico</div>", unsafe_allow_html=True)
+        tipo = st.radio("Tipo de gráfico", tipos, index=tipos.index(escolhas_grafico[escolhida]), horizontal=True, label_visibility="collapsed", help="Tipos indisponíveis são ocultados quando não representam corretamente a pergunta.")
+        escolhas_grafico[escolhida] = tipo
+        esquerda, direita = st.columns([1.6, 1])
+        with esquerda:
+            grafico(grafico_principal_por_tipo(respostas, tipo))
+        with direita:
+            if multipla or tipo in {"▥ Barras verticais", "╱ Linha", "▰ Área", "✦ Dispersão com tendência"}:
+                st.markdown("<h3>Insight automático</h3>", unsafe_allow_html=True)
+                st.markdown(f"<div class='insight-box'>{insight}</div>", unsafe_allow_html=True)
+            else:
+                grafico(grafico_donut(respostas), margem=(260, 120, 100, 120))
+                st.markdown(f"<div class='insight-box'>{insight}</div>", unsafe_allow_html=True)
+            if notas:
+                nota = "<br>".join(f"<b>{item['curto']}</b>: {item['completo']}" for item in notas)
+                st.markdown(f"<div class='secondary-note'><b>Texto completo das respostas:</b><br>{nota}</div>", unsafe_allow_html=True)
     with aba_insights:
         st.markdown(f"<div class='insight-box'><b>Insight automático</b><br>{insight}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='academic-box'><b>Interpretação acadêmica</b><br>{academica}</div>", unsafe_allow_html=True)
         st.subheader("Ranking das respostas")
         ranking = respostas.sort_values("quantidade", ascending=False).reset_index(drop=True)
         ranking.insert(0, "Posição", ranking.index + 1)
-        st.dataframe(ranking.rename(columns={"resposta": "Resposta", "quantidade": "Quantidade", "percentual": "Percentual (%)"}), use_container_width=True, hide_index=True)
+        st.dataframe(ranking.rename(columns={"resposta": "Resposta", "quantidade": "Quantidade", "percentual": "Percentual (%)"}), width="stretch", hide_index=True)
     with aba_tabela:
-        st.dataframe(respostas.rename(columns={"resposta": "Resposta original", "quantidade": "Quantidade", "percentual": "Percentual (%)"}), use_container_width=True, hide_index=True)
+        st.dataframe(respostas.rename(columns={"resposta": "Resposta original", "quantidade": "Quantidade", "percentual": "Percentual (%)"}), width="stretch", hide_index=True)
         st.markdown(f"<div class='secondary-note'>Categorias observadas: {len(respostas)} · Menções: {int(respostas['quantidade'].sum())} · Percentual total: {respostas['percentual'].sum():.1f}%</div>", unsafe_allow_html=True)
 
 
@@ -685,17 +773,33 @@ def main() -> None:
         modo_apresentacao = st.toggle("Modo apresentação", value=False) if hasattr(st, "toggle") else False
         st.divider()
         paginas = ["Dashboard Geral", "Perguntas e Respostas", "Tendências e Comportamentos", "Frequência de Uso da IA", "Finalidade de Utilização da IA", "Plataformas Educacionais do Estado", "IA x Professor", "Impacto no Pensamento Próprio", "Análise por Escola", "Exportação"]
-        icones = ["speedometer2", "question-circle", "graph-up-arrow", "activity", "list-ol", "book", "person-video3", "lightbulb", "building", "download"]
+        icones = ["speedometer2", "chat-square-text", "graph-up-arrow", "activity", "list-check", "book", "person-video3", "lightbulb", "building", "download"]
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] { background: #0F172A !important; min-width: 320px !important; }
+        [data-testid="stSidebar"] .nav-link,
+        [data-testid="stSidebar"] .nav-link span,
+        [data-testid="stSidebar"] .nav-item a { color: #FFFFFF !important; font-size: 18px !important; font-weight: 600 !important; white-space: normal !important; }
+        [data-testid="stSidebar"] .nav-link i { color: #FFFFFF !important; font-size: 24px !important; }
+        [data-testid="stSidebar"] .nav-link.active,
+        [data-testid="stSidebar"] .nav-link.active span { background: #FFFFFF !important; color: #0F172A !important; font-weight: 700 !important; }
+        [data-testid="stSidebar"] .nav-link.active i { color: #0F172A !important; }
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] span { color: #FFFFFF !important; font-size: 18px !important; }
+        [data-testid="stSidebar"] .nav-link { padding: 14px 12px !important; margin: 6px 0 !important; border-radius: 8px !important; }
+        </style>
+        """, unsafe_allow_html=True)
         pagina = option_menu(
             menu_title=None,
             options=paginas,
             icons=icones,
             menu_icon="cast",
-            default_index=0,
+            default_index=1,
             styles={
-                "container": {"padding": "0!important", "background-color": "#0F172A"},
-                "icon": {"color": "#FFFFFF", "font-size": "22px"},
-                "nav-link": {"font-size": "18px", "text-align": "left", "margin": "0", "padding": "14px 12px", "--hover-color": "#1E293B"},
+                "container": {"padding": "8px!important", "background-color": "#0F172A"},
+                "icon": {"color": "#FFFFFF", "font-size": "24px"},
+                "nav-link": {"color": "#FFFFFF", "font-size": "18px", "font-weight": "600", "text-align": "left", "margin": "6px 0", "padding": "14px 12px", "border-radius": "8px", "--hover-color": "#1E3A8A"},
                 "nav-link-selected": {"background-color": "#FFFFFF", "color": "#0F172A", "font-weight": "700"},
             },
         )

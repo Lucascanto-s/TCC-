@@ -5,6 +5,11 @@ secondaryBackgroundColor="#F5F7FA"
 textColor="#111111"
 primaryColor="#1D4ED8"
 
+[theme.sidebar]
+backgroundColor="#0F172A"
+secondaryBackgroundColor="#1E293B"
+textColor="#FFFFFF"
+
 [server]
 headless=true
 
