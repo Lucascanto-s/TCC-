@@ -4,9 +4,9 @@ Sistema de análise dos impactos da Inteligência Artificial no desempenho escol
 Para executar:
     streamlit run app.py
 
-O aplicativo aceita planilhas .xlsx com nomes de colunas em português ou inglês.
-Quando nenhum arquivo é enviado, uma base demonstrativa é exibida para facilitar
-a apresentação e a validação visual do TCC.
+Os dados vêm de Total_master.xlsx (respostas do Google Forms). As perguntas são
+identificadas pelo número ("1.", "2.", ...). Sem a planilha na pasta, o app
+avisa e não exibe resultados.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ st.markdown(
 
 
 # -----------------------------------------------------------------------------
-# Dados: leitura, limpeza e base demonstrativa
+# Dados: leitura e limpeza da planilha
 # -----------------------------------------------------------------------------
 def normalizar_nome(nome: str) -> str:
     """Converte o nome de uma coluna para um identificador comparável."""
@@ -96,113 +96,114 @@ def normalizar_nome(nome: str) -> str:
     return re.sub(r"\s+", "_", nome)
 
 
-def base_demo() -> pd.DataFrame:
-    """Cria dados plausíveis para que o dashboard funcione antes do upload."""
-    escolas = ["Colégio Estadual Jardim das Américas", "Colégio Estadual do Paraná", "Instituto de Educação do Paraná", "Colégio Estadual Santa Felicidade"]
-    series = ["9º ano", "1ª série EM", "2ª série EM", "3ª série EM"]
-    frequencias = ["Diariamente", "Semanalmente", "Raramente", "Nunca"]
-    finalidades = ["Pesquisas e trabalhos", "Tirar dúvidas", "Resumos e revisão", "Produção de textos", "Exercícios"]
-    linhas = []
-    for indice in range(96):
-        linhas.append({
-            "Escola": escolas[indice % len(escolas)], "Série": series[indice % len(series)],
-            "Frequência IA": frequencias[(indice * 3) % len(frequencias)],
-            "Finalidade IA": finalidades[indice % len(finalidades)],
-            "Redação Paraná": "Sim" if indice % 3 != 0 else "Não",
-            "Fluência Paraná": "Sim" if indice % 4 != 0 else "Não",
-            "IA substitui professor?": ["Não", "Parcialmente", "Sim"][(indice + 1) % 3],
-            "Pensamento próprio": ["Aumentou", "Permaneceu igual", "Diminuiu"][(indice * 2) % 3],
-        })
-    return pd.DataFrame(linhas)
+PERGUNTAS = {
+    "pergunta_1": "1. Você utiliza ferramentas de Inteligência Artificial para estudar ou realizar tarefas escolares?",
+    "pergunta_2": "2. Quais ferramentas de IA você mais utiliza na sua rotina de estudos? (Marque todas que se aplicam)",
+    "pergunta_3": "3. Com qual finalidade principal você costuma usar a IA nos estudos?",
+    "pergunta_4": "4. Com qual frequência você utiliza as plataformas com IA do estado (ex: Redação Paraná, Fluência Paraná)?",
+    "pergunta_5": "5. Como os seus professores costumam reagir ao saber que os alunos usam IA nos trabalhos?",
+    "pergunta_6": "6. Algum professor já passou uma atividade ou trabalho que EXIGIA o uso de ferramentas de IA?",
+    "pergunta_7": "7. Você sente que o uso da IA diminui sua capacidade de pensar por conta própria?",
+    "pergunta_8": "8. Na sua opinião, uma ferramenta de IA pode explicar a matéria melhor que um professor?",
+}
+
+# Cada tema analisado pelas páginas corresponde a uma pergunta numerada do
+# questionário. O vínculo pelo número evita que uma pergunta seja confundida
+# com outra apenas por compartilhar palavras (ex.: "IA", "professor").
+CAMPOS_PERGUNTA = {
+    "frequencia": "pergunta_1",
+    "ferramentas": "pergunta_2",
+    "finalidade": "pergunta_3",
+    "plataformas": "pergunta_4",
+    "reacao_professor": "pergunta_5",
+    "atividade_ia": "pergunta_6",
+    "pensamento": "pergunta_7",
+    "professor": "pergunta_8",
+}
+
+ORDEM_SERIES = ["fundamental_inicial", "fundamental_final", "medio_inicial", "medio_final"]
+
+
+def ordem_serie(valor: object) -> int:
+    """Posição da etapa escolar, do 6º ano do Fundamental ao 3º do Médio."""
+    nome = normalizar_nome(valor)
+    return next((posicao for posicao, chave in enumerate(ORDEM_SERIES) if chave in nome), len(ORDEM_SERIES))
+
+
+def limpar_resposta(valor: object) -> str:
+    """Remove espaços extras e unifica as variações de "Não utilizo"."""
+    if pd.isna(valor) or not str(valor).strip():
+        return "Não informado"
+    texto = re.sub(r"\s+", " ", str(valor)).strip()
+    return "Não utilizo" if normalizar_nome(texto).startswith("nao_utilizo") else texto
+
+
+def localizar_coluna(dataframe: pd.DataFrame, criterio) -> object | None:
+    """Primeira coluna cujo nome normalizado atende ao critério."""
+    return next((coluna for coluna in dataframe.columns if criterio(normalizar_nome(coluna))), None)
 
 
 def padronizar_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
-    """Mapeia cabeçalhos curtos ou perguntas completas para o modelo interno."""
-    # Cada lista contém termos que costumam aparecer nas perguntas do Forms.
-    # O maior número de termos coincidentes vence, evitando depender do texto exato.
-    palavras_chave = {
-        "escola": [("escola",), ("colegio",), ("instituicao",), ("estabelecimento",)],
-        "serie": [("serie",), ("ano", "escolar"), ("qual", "ano"), ("turma",)],
-        "frequencia": [("frequencia",), ("frequente", "ia"), ("vezes", "ia"), ("utiliza", "ia")],
-        "finalidade": [("finalidade",), ("utiliza", "ia", "para"), ("usa", "ia", "para"), ("atividade", "ia")],
-        "redacao": [("redacao", "parana"), ("redacao",)],
-        "fluencia": [("fluencia", "parana"), ("fluencia",)],
-        "professor": [("substitui", "professor"), ("professor", "ia"), ("professor", "inteligencia", "artificial")],
-        "pensamento": [("pensamento",), ("autonomia",), ("critico", "ia"), ("proprio", "ia")],
-    }
-    nomes = {normalizar_nome(coluna): coluna for coluna in dataframe.columns}
-    renomear: dict[object, str] = {}
-    usados: set[object] = set()
+    """Converte a planilha do Forms para o modelo interno usado pelas páginas.
+
+    Escola e série são as colunas não numeradas do formulário; as perguntas
+    são localizadas pelo número inicial ("1.", "2.", ...).
+    """
+    sem_numero = lambda nome: not nome[:1].isdigit()
+    col_escola = localizar_coluna(dataframe, lambda nome: sem_numero(nome) and any(termo in nome for termo in ("instituicao", "escola", "colegio")))
+    col_serie = localizar_coluna(dataframe, lambda nome: sem_numero(nome) and ("serie" in nome or "turma" in nome or "ano" in nome.split("_")))
+    resultado = pd.DataFrame(index=dataframe.index)
     ausentes: list[str] = []
-    for destino, grupos in palavras_chave.items():
-        candidatos = []
-        for nome_normalizado, nome_original in nomes.items():
-            if nome_original in usados:
-                continue
-            tokens = set(nome_normalizado.split("_"))
-            pontuacao = max((sum(token in tokens for token in grupo) for grupo in grupos), default=0)
-            # Para perguntas completas, também permite encontrar termos no texto.
-            texto = nome_normalizado.replace("_", " ")
-            pontuacao = max(pontuacao, max((sum(token in texto for token in grupo) for grupo in grupos), default=0))
-            if pontuacao:
-                candidatos.append((pontuacao, len(nome_normalizado), nome_original))
-        if candidatos:
-            _, _, escolhido = max(candidatos, key=lambda item: (item[0], -item[1]))
-            renomear[escolhido] = destino
-            usados.add(escolhido)
-        else:
+    for destino, coluna in (("escola", col_escola), ("serie", col_serie)):
+        if coluna is None:
             ausentes.append(destino)
-    resultado = dataframe.rename(columns=renomear).copy()
-
-    # A pergunta 2 permite múltiplas escolhas e concentra as plataformas
-    # estaduais numa única coluna. Criamos os indicadores usados nos gráficos.
-    coluna_ferramentas = next(
-        (coluna for coluna in resultado.columns if "ferrament" in normalizar_nome(coluna) or "plataforma" in normalizar_nome(coluna)),
-        None,
-    )
-    if coluna_ferramentas is not None:
-        ferramentas = resultado[coluna_ferramentas].fillna("").astype(str).map(normalizar_nome)
-        resultado["ferramentas"] = resultado[coluna_ferramentas]
-        resultado["redacao"] = ferramentas.map(lambda valor: "Sim" if "redacao_parana" in valor else "Não")
-        resultado["fluencia"] = ferramentas.map(lambda valor: "Sim" if "fluencia_parana" in valor else "Não")
-    else:
-        resultado["ferramentas"] = "Não informado"
-
-    # Mantém as perguntas numeradas sem alterar o texto original das colunas.
-    # Isso permite apresentar os gráficos com a mesma redação do questionário.
+            resultado[destino] = "Não informado"
+        else:
+            resultado[destino] = dataframe[coluna].map(limpar_resposta)
     for numero in range(1, 9):
-        coluna_pergunta = next((coluna for coluna in dataframe.columns if normalizar_nome(coluna).startswith(f"{numero}_")), None)
-        resultado[f"pergunta_{numero}"] = dataframe[coluna_pergunta] if coluna_pergunta is not None else "Não informado"
-    for coluna in palavras_chave:
-        if coluna not in resultado.columns:
-            resultado[coluna] = "Não informado"
+        chave = f"pergunta_{numero}"
+        coluna = localizar_coluna(dataframe, lambda nome: nome.startswith(f"{numero}_"))
+        if coluna is None:
+            ausentes.append(chave)
+            resultado[chave] = "Não informado"
+        else:
+            resultado[chave] = dataframe[coluna].map(limpar_resposta)
+    for campo, chave in CAMPOS_PERGUNTA.items():
+        resultado[campo] = resultado[chave]
+    resultado = resultado.reset_index(drop=True)
     resultado.attrs["colunas_ausentes"] = ausentes
-    campos_exibicao = list(palavras_chave) + ["ferramentas"] + [f"pergunta_{numero}" for numero in range(1, 9)]
-    return resultado[campos_exibicao]
+    return resultado
 
 
-def carregar_dados() -> tuple[pd.DataFrame, bool]:
-    """Carrega a base principal Total_master.xlsx que acompanha o aplicativo."""
+@st.cache_data(show_spinner=False)
+def ler_planilha(caminho: str, modificado_em: float) -> pd.DataFrame:
+    """Lê a aba de respostas; o horário de modificação invalida o cache."""
+    abas = pd.read_excel(caminho, sheet_name=None, engine="openpyxl")
+    # Se existir a aba consolidada "Principal", usa somente ela: somar abas por
+    # instituição a ela contaria as mesmas respostas duas vezes.
+    principal = next((tabela for nome, tabela in abas.items() if normalizar_nome(nome) == "principal"), None)
+    tabelas = [principal] if principal is not None else list(abas.values())
+    tabelas = [tabela.dropna(how="all") for tabela in tabelas if not tabela.dropna(how="all").empty]
+    if not tabelas:
+        raise ValueError("Nenhuma aba com respostas foi encontrada")
+    return padronizar_dataframe(pd.concat(tabelas, ignore_index=True))
+
+
+def carregar_dados() -> pd.DataFrame:
+    """Carrega a base Total_master.xlsx. Sem ela, nenhum resultado é exibido."""
     arquivo_master = Path(__file__).with_name("Total_master.xlsx")
     if not arquivo_master.exists():
-        st.warning("A base Total_master.xlsx não foi encontrada. Exibindo dados demonstrativos.")
-        return base_demo(), False
+        st.error(f"A planilha **Total_master.xlsx** não foi encontrada. Coloque o arquivo na pasta `{arquivo_master.parent}` e recarregue a página.")
+        st.stop()
     try:
-        # O arquivo possui uma aba por instituição e a aba Principal. Ler apenas
-        # a primeira aba fazia o dashboard exibir somente uma escola.
-        abas = pd.read_excel(arquivo_master, sheet_name=None, engine="openpyxl")
-        tabelas = [tabela.dropna(how="all") for tabela in abas.values() if not tabela.dropna(how="all").empty]
-        if not tabelas:
-            raise ValueError("Nenhuma aba com respostas foi encontrada")
-        planilha = pd.concat(tabelas, ignore_index=True)
-        resultado = padronizar_dataframe(planilha)
-        resultado.attrs["colunas_originais"] = [str(coluna) for coluna in planilha.columns]
-        resultado.attrs["arquivo_fonte"] = arquivo_master.name
-        resultado.attrs["abas_lidas"] = list(abas)
-        return resultado, True
+        dados = ler_planilha(str(arquivo_master), arquivo_master.stat().st_mtime)
     except Exception as erro:  # Erro amigável na interface, sem derrubar o app.
-        st.error(f"Não foi possível ler a planilha: {erro}")
-        return base_demo(), False
+        st.error(f"Não foi possível ler a planilha Total_master.xlsx: {erro}")
+        st.stop()
+    if dados.empty:
+        st.warning("A planilha Total_master.xlsx não contém respostas.")
+        st.stop()
+    return dados
 
 
 def opcoes(dataframe: pd.DataFrame, coluna: str) -> list[str]:
@@ -475,107 +476,133 @@ def resumir_pergunta(dataframe: pd.DataFrame, coluna: str) -> tuple[pd.DataFrame
     return resumo, multipla, nota_completa
 
 
-def percentual_uso_diario(respostas: pd.Series) -> float:
-    """Calcula uso diário tanto para a base demo quanto para o questionário real."""
-    valores = respostas.fillna("").astype(str).str.strip().str.lower()
-    return valores.isin(["sempre", "diariamente"]).mean() * 100
+def percentual_uso_frequente(respostas: pd.Series) -> float:
+    """Percentual que usa IA ao menos 3 vezes por semana ("Sempre" ou "Frequentemente")."""
+    if respostas.empty:
+        return 0.0
+    return float((indice_frequencia(respostas) >= 3).mean() * 100)
+
+
+def percentual_que_comeca(respostas: pd.Series, *prefixos: str) -> float:
+    """Percentual de respostas cujo texto normalizado começa com um dos prefixos."""
+    if respostas.empty:
+        return 0.0
+    normalizadas = respostas.fillna("").astype(str).map(normalizar_nome)
+    return float(normalizadas.map(lambda valor: valor.startswith(prefixos)).mean() * 100)
+
+
+def resumo_ordenado_series(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Contagem por etapa escolar na ordem 6º ano -> 3º do Médio."""
+    resumo = percentual(dataframe, "serie")
+    return resumo.assign(_ordem=resumo["resposta"].map(ordem_serie)).sort_values("_ordem").drop(columns="_ordem")
 
 
 # -----------------------------------------------------------------------------
 # Páginas analíticas
 # -----------------------------------------------------------------------------
-def pagina_dashboard(dataframe: pd.DataFrame, origem_upload: bool) -> None:
+def pagina_dashboard(dataframe: pd.DataFrame) -> None:
     st.markdown('<div class="hero"><h1>EduIA Analytics</h1><p>Sistema de Análise dos Impactos da Inteligência Artificial no Desempenho Escolar</p><p><strong>Autores:</strong> Lucas Augusto Canto Silva · Vinicius Gabriel Paulicz Drewnowski</p></div>', unsafe_allow_html=True)
-    if not origem_upload:
-        st.info("Você está visualizando uma base demonstrativa. Importe um arquivo .xlsx na barra lateral para analisar as respostas reais.")
     st.subheader("Visão geral da pesquisa")
-    escolas = dataframe["escola"].nunique()
-    with st.container():
-        colunas = st.columns(4)
-        for coluna, (rotulo, valor, cor) in zip(colunas, [("Participantes", f"{len(dataframe):,}".replace(",", "."), COLORS["blue"]), ("Escolas", str(escolas), COLORS["purple"]), ("Séries", str(dataframe["serie"].nunique()), COLORS["sky"]), ("Uso diário de IA", f"{percentual_uso_diario(dataframe['frequencia']):.1f}%", COLORS["green"])]):
-            with coluna:
-                kpi(rotulo, valor, cor)
+    indicadores = [
+        ("Participantes", f"{len(dataframe):,}".replace(",", "."), COLORS["blue"]),
+        ("Escolas", str(dataframe["escola"].nunique()), COLORS["purple"]),
+        ("Usam IA 3+ vezes/semana", f"{percentual_uso_frequente(dataframe['frequencia']):.1f}%", COLORS["green"]),
+        ("Sentem que a IA reduz o raciocínio", f"{percentual_que_comeca(dataframe['pensamento'], 'sim', 'um_pouco'):.1f}%", COLORS["orange"]),
+    ]
+    for coluna, (rotulo, valor, cor) in zip(st.columns(4), indicadores):
+        with coluna:
+            kpi(rotulo, valor, cor)
     esquerda, direita = st.columns(2)
     with esquerda:
-        serie = percentual(dataframe, "serie")
-        grafico(px.bar(serie, x="resposta", y="quantidade", color="resposta", color_discrete_sequence=[COLORS["blue"], COLORS["purple"], COLORS["sky"], COLORS["lilac"]], title="Distribuição por série").update_layout(showlegend=False))
+        serie = resumo_ordenado_series(dataframe)
+        serie["rotulo"] = serie["resposta"].map(lambda valor: abreviar_rotulo(valor, 20))
+        grafico(px.bar(serie, x="rotulo", y="quantidade", text="quantidade", color_discrete_sequence=[COLORS["blue"]], title="Participantes por etapa escolar", labels={"rotulo": "", "quantidade": "Participantes"}).update_traces(textposition="outside"))
     with direita:
-        escola = percentual(dataframe, "escola")
-        grafico(px.bar(escola, x="quantidade", y="resposta", orientation="h", color="quantidade", color_continuous_scale=["#bfdbfe", COLORS["purple"]], title="Participantes por instituição").update_layout(coloraxis_showscale=False))
+        escola = percentual(dataframe, "escola").sort_values("quantidade")
+        escola["rotulo"] = escola["resposta"].map(lambda valor: abreviar_rotulo(valor, 28))
+        grafico(px.bar(escola, x="quantidade", y="rotulo", orientation="h", text="quantidade", color_discrete_sequence=[COLORS["purple"]], title="Participantes por instituição", labels={"rotulo": "", "quantidade": "Participantes"}).update_traces(textposition="outside"))
+
+
+def grafico_tema(dataframe: pd.DataFrame, campo: str) -> None:
+    """Barras horizontais com percentual, reaproveitando a análise por pergunta."""
+    respostas, _, _ = resumir_pergunta(dataframe, CAMPOS_PERGUNTA[campo])
+    grafico(grafico_pergunta_principal(respostas))
+
+
+def tabela_tema(dataframe: pd.DataFrame, campo: str, nome_coluna: str) -> None:
+    resumo = percentual(dataframe, campo)
+    st.dataframe(resumo.rename(columns={"resposta": nome_coluna, "quantidade": "Respostas", "percentual": "%"}), width="stretch", hide_index=True)
 
 
 def pagina_frequencia(dataframe: pd.DataFrame) -> None:
-    titulo("Frequência de Uso da IA", "Observe a regularidade de utilização e filtre o recorte por instituição.")
+    titulo("Frequência de Uso da IA", f"Pergunta {PERGUNTAS['pergunta_1']} Filtre o recorte por instituição.")
     escolas = st.multiselect("Filtrar escolas", opcoes(dataframe, "escola"), default=[])
     filtrado = dataframe[dataframe["escola"].isin(escolas)] if escolas else dataframe
-    resumo = percentual(filtrado, "frequencia")
+    resumo = ordenar_respostas(percentual(filtrado, "frequencia"))
+    resumo["rotulo"] = resumo["resposta"].map(rotulo_curto)
     col1, col2 = st.columns([1.35, 1])
     with col1:
-        grafico(px.bar(resumo, x="resposta", y="quantidade", text=resumo["percentual"].map(lambda x: f"{x:.1f}%"), color="resposta", color_discrete_sequence=[COLORS["blue"], COLORS["sky"], COLORS["purple"], "#CBD5E1"], title="Frequência declarada").update_traces(textposition="outside").update_layout(showlegend=False))
+        grafico(px.bar(resumo, x="rotulo", y="percentual", text=resumo["percentual"].map(lambda x: f"{x:.1f}%"), color_discrete_sequence=[COLORS["blue"]], title="Frequência declarada", labels={"rotulo": "", "percentual": "Percentual (%)"}).update_traces(textposition="outside"))
     with col2:
-        grafico(px.pie(resumo, names="resposta", values="quantidade", hole=.55, color_discrete_sequence=[COLORS["blue"], COLORS["sky"], COLORS["purple"], "#CBD5E1"], title="Composição percentual"))
-    st.dataframe(resumo.rename(columns={"resposta": "Frequência", "quantidade": "Respostas", "percentual": "%"}), width="stretch", hide_index=True)
+        kpi("Usam IA 3+ vezes por semana", f"{percentual_uso_frequente(filtrado['frequencia']):.1f}%", COLORS["green"])
+        st.write("")
+        kpi("Não utilizam IA", f"{percentual_que_comeca(filtrado['frequencia'], 'nao_utilizo'):.1f}%", COLORS["orange"])
+    st.dataframe(resumo.drop(columns="rotulo").rename(columns={"resposta": "Frequência", "quantidade": "Respostas", "percentual": "%"}), width="stretch", hide_index=True)
 
 
 def pagina_finalidade(dataframe: pd.DataFrame) -> None:
-    titulo("Finalidade de Utilização da IA", "Ranking das atividades em que os estudantes recorrem às ferramentas de inteligência artificial.")
-    resumo = percentual(dataframe, "finalidade").sort_values("quantidade")
-    grafico(px.bar(resumo, x="quantidade", y="resposta", orientation="h", text=resumo["percentual"].map(lambda x: f"{x:.1f}%"), color="quantidade", color_continuous_scale=["#c4b5fd", COLORS["purple"]], title="Ranking de finalidades").update_traces(textposition="outside").update_layout(coloraxis_showscale=False))
-    st.dataframe(resumo.sort_values("quantidade", ascending=False).rename(columns={"resposta": "Finalidade", "quantidade": "Respostas", "percentual": "%"}), width="stretch", hide_index=True)
+    titulo("Finalidade de Utilização da IA", PERGUNTAS["pergunta_3"])
+    grafico_tema(dataframe, "finalidade")
+    tabela_tema(dataframe, "finalidade", "Finalidade")
 
 
 def pagina_plataformas(dataframe: pd.DataFrame) -> None:
-    titulo("Plataformas Educacionais do Estado", "Uso declarado das plataformas Redação Paraná e Fluência Paraná.")
-    registros = []
-    for coluna, nome in [("redacao", "Redação Paraná"), ("fluencia", "Fluência Paraná")]:
-        for resposta, quantidade, percent in percentual(dataframe, coluna).itertuples(index=False):
-            registros.append({"Plataforma": nome, "Resposta": resposta, "Quantidade": quantidade, "Percentual": percent})
-    resumo = pd.DataFrame(registros)
-    col1, col2 = st.columns(2)
-    with col1:
-        grafico(px.bar(resumo, x="Plataforma", y="Percentual", color="Resposta", barmode="group", text="Percentual", color_discrete_sequence=[COLORS["green"], COLORS["orange"], COLORS["purple"]], title="Percentual de utilização").update_traces(texttemplate="%{text:.1f}%", textposition="outside").update_layout(yaxis_title="Percentual (%)"))
-    with col2:
-        respostas_positivas = resumo[resumo["Resposta"].str.lower().isin(["sim", "sempre", "frequentemente"])]
-        totais = respostas_positivas.groupby("Plataforma", as_index=False)["Percentual"].sum()
-        grafico(px.bar(totais, x="Plataforma", y="Percentual", text="Percentual", color="Plataforma", color_discrete_sequence=[COLORS["blue"], COLORS["purple"]], title="Adesão estimada").update_traces(texttemplate="%{text:.1f}%", textposition="outside").update_layout(showlegend=False, yaxis_title="Percentual (%)"))
+    titulo("Plataformas Educacionais do Estado", PERGUNTAS["pergunta_4"])
+    ferramentas = dataframe["ferramentas"].fillna("").astype(str).map(normalizar_nome)
+    citaram = float(ferramentas.str.contains("plataformas_estaduais").mean() * 100)
+    colunas = st.columns(3)
+    with colunas[0]:
+        kpi("Usam toda semana", f"{percentual_que_comeca(dataframe['plataformas'], 'toda_semana'):.1f}%", COLORS["blue"])
+    with colunas[1]:
+        kpi("Usam só quando o professor pede", f"{percentual_que_comeca(dataframe['plataformas'], 'apenas_quando'):.1f}%", COLORS["purple"])
+    with colunas[2]:
+        kpi("Citaram as plataformas na pergunta 2", f"{citaram:.1f}%", COLORS["green"])
+    grafico_tema(dataframe, "plataformas")
+    st.caption("A pergunta 2 agrupa Redação Paraná e Fluência Paraná numa única opção, por isso as plataformas não são separadas.")
 
 
 def pagina_professor(dataframe: pd.DataFrame) -> None:
-    titulo("IA x Professor", "Compare a percepção dos estudantes sobre a relação entre inteligência artificial e mediação docente.")
-    resumo = percentual(dataframe, "professor")
+    titulo("IA x Professor", "Percepção dos estudantes sobre a IA frente ao professor e sobre a postura dos docentes.")
+    st.subheader(PERGUNTAS["pergunta_8"])
+    grafico_tema(dataframe, "professor")
     col1, col2 = st.columns(2)
     with col1:
-        grafico(px.pie(resumo, names="resposta", values="quantidade", hole=.48, color_discrete_sequence=[COLORS["blue"], COLORS["purple"], COLORS["orange"]], title="A IA substitui o professor?"))
+        st.subheader(PERGUNTAS["pergunta_5"])
+        grafico_tema(dataframe, "reacao_professor")
     with col2:
-        grafico(px.bar(resumo, x="resposta", y="quantidade", color="resposta", text="percentual", color_discrete_sequence=[COLORS["blue"], COLORS["purple"], COLORS["orange"]], title="Comparação das respostas").update_traces(texttemplate="%{text:.1f}%", textposition="outside").update_layout(showlegend=False))
+        st.subheader(PERGUNTAS["pergunta_6"])
+        grafico_tema(dataframe, "atividade_ia")
 
 
 def pagina_pensamento(dataframe: pd.DataFrame) -> None:
-    titulo("Impacto no Pensamento Próprio", "Indicadores da percepção dos estudantes sobre autonomia e pensamento crítico.")
-    resumo = percentual(dataframe, "pensamento")
-    colunas = st.columns(3)
-    for coluna, resposta, cor in zip(colunas, resumo["resposta"].tolist()[:3], [COLORS["green"], COLORS["blue"], COLORS["orange"]]):
+    titulo("Impacto no Pensamento Próprio", PERGUNTAS["pergunta_7"])
+    indicadores = [
+        ("Não: a IA é só apoio", percentual_que_comeca(dataframe["pensamento"], "nao_ela"), COLORS["green"]),
+        ("Um pouco", percentual_que_comeca(dataframe["pensamento"], "um_pouco"), COLORS["blue"]),
+        ("Sim: ficam mais preguiçosos", percentual_que_comeca(dataframe["pensamento"], "sim"), COLORS["orange"]),
+    ]
+    for coluna, (rotulo, valor, cor) in zip(st.columns(3), indicadores):
         with coluna:
-            valor = resumo.loc[resumo["resposta"] == resposta, "percentual"].iloc[0]
-            kpi(resposta, f"{valor:.1f}%", cor)
-    grafico(px.bar(resumo, x="resposta", y="quantidade", text=resumo["percentual"].map(lambda x: f"{x:.1f}%"), color="resposta", color_discrete_sequence=[COLORS["green"], COLORS["blue"], COLORS["orange"]], title="Distribuição das respostas").update_traces(textposition="outside").update_layout(showlegend=False))
-    st.caption(f"Média de respostas válidas: {resumo['quantidade'].sum()} · Categorias observadas: {len(resumo)}")
+            kpi(rotulo, f"{valor:.1f}%", cor)
+    grafico_tema(dataframe, "pensamento")
+    tabela_tema(dataframe, "pensamento", "Resposta")
 
 
 def pagina_perguntas(dataframe: pd.DataFrame) -> None:
     """Exibe análise inteligente da pergunta selecionada e suas respostas originais."""
     st.markdown('<div class="eyebrow">EduIA Analytics / análise principal</div>', unsafe_allow_html=True)
     st.title("Perguntas e Respostas")
-    perguntas = {
-        "pergunta_1": "1. Você utiliza ferramentas de Inteligência Artificial para estudar ou realizar tarefas escolares?",
-        "pergunta_2": "2. Quais ferramentas de IA você mais utiliza na sua rotina de estudos? (Marque todas que se aplicam)",
-        "pergunta_3": "3. Com qual finalidade principal você costuma usar a IA nos estudos?",
-        "pergunta_4": "4. Com qual frequência você utiliza as plataformas com IA do estado (ex: Redação Paraná, Fluência Paraná)?",
-        "pergunta_5": "5. Como os seus professores costumam reagir ao saber que os alunos usam IA nos trabalhos?",
-        "pergunta_6": "6. Algum professor já passou uma atividade ou trabalho que EXIGIA o uso de ferramentas de IA?",
-        "pergunta_7": "7. Você sente que o uso da IA diminui sua capacidade de pensar por conta própria?",
-        "pergunta_8": "8. Na sua opinião, uma ferramenta de IA pode explicar a matéria melhor que um professor?",
-    }
+    perguntas = PERGUNTAS
     controles = st.columns([2.2, 1])
     with controles[0]:
         escolhida = st.selectbox("Selecione uma pergunta", list(perguntas), format_func=lambda chave: perguntas[chave])
@@ -663,44 +690,91 @@ def figura_tendencia(tabela: pd.DataFrame, titulo_grafico: str) -> go.Figure:
     return apply_layout(figura, 430)
 
 
+def indice_autonomia(respostas: pd.Series) -> pd.Series:
+    """Pergunta 7 em escala 1-3 (3 = a IA não reduz o raciocínio); quem não usa IA fica de fora."""
+    valores = respostas.fillna("").astype(str).map(normalizar_nome)
+    return valores.map(lambda valor: 3 if valor.startswith("nao_ela") else 2 if valor.startswith("um_pouco") else 1 if valor.startswith("sim") else float("nan"))
+
+
+def indice_preferencia_ia(respostas: pd.Series) -> pd.Series:
+    """Pergunta 8 em escala 1-3 (3 = a IA explica melhor); "Não sei opinar" fica de fora."""
+    valores = respostas.fillna("").astype(str).map(normalizar_nome)
+    return valores.map(lambda valor: 3 if valor.startswith("sim") else 2 if valor.startswith("parcialmente") else 1 if valor.startswith("nao_o_professor") else float("nan"))
+
+
 def pagina_tendencias(dataframe: pd.DataFrame) -> None:
-    """Analisa comportamentos por série e instituição com linhas de tendência."""
-    titulo("Tendências e Comportamentos", "Leitura longitudinal dos padrões de uso, aceitação e relação com o professor.")
+    """Analisa como os comportamentos variam entre etapas escolares e instituições."""
+    titulo("Tendências e Comportamentos", "Como uso, autonomia e percepção do professor variam ao longo das etapas escolares.")
     base = dataframe.copy()
     base["indice_uso"] = indice_frequencia(base["frequencia"])
-    base["indice_pensamento"] = base["pensamento"].astype(str).str.lower().map(lambda valor: 3 if "não" in valor and "diminui" in valor else 2 if "um pouco" in valor else 1 if "sim" in valor or "diminui" in valor else 2)
-    base["indice_professor"] = base["professor"].astype(str).str.lower().map(lambda valor: 3 if "sim" in valor or "melhor" in valor else 2 if "parcial" in valor or "aceitam" in valor else 1)
-    visao = st.radio("Agrupar tendências por", ["Série", "Instituição"], horizontal=True)
-    campo = "serie" if visao == "Série" else "escola"
-    agrupado = base.groupby(campo, as_index=False).agg(indice_uso=("indice_uso", "mean"), indice_pensamento=("indice_pensamento", "mean"), indice_professor=("indice_professor", "mean"), participantes=("escola", "size")).sort_values(campo)
-    status = []
-    para_graficos = [("Adoção da IA", "indice_uso"), ("Dependência / autonomia", "indice_pensamento"), ("Aceitação e IA x professor", "indice_professor")]
-    colunas = st.columns(3)
-    for coluna, (nome, campo_indice) in zip(colunas, para_graficos):
-        direcao, cor = tendencia_status(agrupado[campo_indice])
-        with coluna:
-            kpi(nome, direcao, cor)
-        status.append({"Indicador": nome, "Direção": direcao})
-    escolha = st.selectbox("Comportamento em detalhe", [item[0] for item in para_graficos])
-    campo_escolhido = dict(para_graficos)[escolha]
-    tabela = agrupado.rename(columns={campo: "grupo", campo_escolhido: "indice"})[["grupo", "indice", "participantes"]]
-    grafico(figura_tendencia(tabela, escolha))
-    st.dataframe(pd.DataFrame(status), use_container_width=True, hide_index=True)
+    base["indice_pensamento"] = indice_autonomia(base["pensamento"])
+    base["indice_professor"] = indice_preferencia_ia(base["professor"])
+    para_graficos = [
+        ("Adoção da IA", "indice_uso", "0 = não utiliza · 4 = sempre (pergunta 1)"),
+        ("Autonomia de raciocínio", "indice_pensamento", "1 = fica mais preguiçoso · 3 = IA é só apoio (pergunta 7)"),
+        ("Preferência pela IA frente ao professor", "indice_professor", "1 = professor explica melhor · 3 = IA explica melhor (pergunta 8)"),
+    ]
+    visao = st.radio("Agrupar por", ["Etapa escolar", "Instituição"], horizontal=True)
+    campo = "serie" if visao == "Etapa escolar" else "escola"
+    agrupado = base.groupby(campo, as_index=False).agg(indice_uso=("indice_uso", "mean"), indice_pensamento=("indice_pensamento", "mean"), indice_professor=("indice_professor", "mean"), participantes=("escola", "size"))
+    if campo == "serie":
+        agrupado = agrupado.assign(_ordem=agrupado["serie"].map(ordem_serie)).sort_values("_ordem").drop(columns="_ordem")
+        status = []
+        for coluna, (nome, campo_indice, _) in zip(st.columns(3), para_graficos):
+            direcao, cor = tendencia_status(agrupado[campo_indice])
+            with coluna:
+                kpi(nome, direcao, cor)
+            status.append({"Indicador": nome, "Do 6º ano ao 3º do Médio": direcao})
+        escolha = st.selectbox("Comportamento em detalhe", [item[0] for item in para_graficos])
+        campo_escolhido, escala = next((indice, escala) for nome, indice, escala in para_graficos if nome == escolha)
+        tabela = agrupado.rename(columns={campo: "grupo", campo_escolhido: "indice"})[["grupo", "indice", "participantes"]]
+        tabela["grupo"] = tabela["grupo"].map(lambda valor: abreviar_rotulo(valor, 20))
+        grafico(figura_tendencia(tabela, escolha))
+        st.caption(f"Escala: {escala}. Cada ponto é a média da etapa; poucos participantes numa etapa tornam a média menos estável.")
+        st.dataframe(pd.DataFrame(status), width="stretch", hide_index=True)
+    else:
+        longo = agrupado.melt(id_vars=[campo, "participantes"], value_vars=[indice for _, indice, _ in para_graficos], var_name="indicador", value_name="indice")
+        longo["indicador"] = longo["indicador"].map({indice: nome for nome, indice, _ in para_graficos})
+        longo["rotulo"] = longo[campo].map(lambda valor: abreviar_rotulo(valor, 22))
+        grafico(px.bar(longo, x="rotulo", y="indice", color="indicador", barmode="group", text=longo["indice"].map(lambda valor: f"{valor:.2f}"), title="Índices médios por instituição", labels={"rotulo": "", "indice": "Índice médio", "indicador": "Indicador"}, color_discrete_sequence=[COLORS["blue"], COLORS["green"], COLORS["orange"]]).update_traces(textposition="outside"), altura=480)
+        st.caption(" · ".join(f"{nome}: {escala}" for nome, _, escala in para_graficos))
+    st.dataframe(agrupado.rename(columns={campo: visao, "indice_uso": "Adoção (0-4)", "indice_pensamento": "Autonomia (1-3)", "indice_professor": "Preferência IA (1-3)", "participantes": "Participantes"}).round(2), width="stretch", hide_index=True)
 
 
 def pagina_escola(dataframe: pd.DataFrame) -> None:
-    titulo("Análise por Escola", "Compare indicadores entre instituições e aprofunde a leitura de uma escola específica.")
-    selecionadas = st.multiselect("Instituições para comparar", opcoes(dataframe, "escola"), default=opcoes(dataframe, "escola")[:3])
+    titulo("Análise por Escola", "Compare os principais indicadores entre as instituições participantes.")
+    todas = opcoes(dataframe, "escola")
+    selecionadas = st.multiselect("Instituições para comparar", todas, default=todas)
     filtrado = dataframe[dataframe["escola"].isin(selecionadas)] if selecionadas else dataframe
-    tabela = filtrado.groupby("escola", as_index=False).agg(Participantes=("escola", "size"), Uso_diario=("frequencia", lambda valores: round(percentual_uso_diario(valores), 1)), Uso_redacao=("redacao", lambda valores: round(valores.astype(str).str.lower().eq("sim").mean() * 100, 1)), Autonomia_aumentou=("pensamento", lambda valores: round(valores.astype(str).str.lower().eq("aumentou").mean() * 100, 1))).sort_values("Participantes", ascending=False)
-    st.dataframe(tabela.rename(columns={"escola": "Instituição", "Uso_diario": "Uso diário (%)", "Uso_redacao": "Redação Paraná (%)", "Autonomia_aumentou": "Pensamento próprio aumentou (%)"}), use_container_width=True, hide_index=True)
+    indicadores = {
+        "Usam IA 3+ vezes/semana (%)": lambda grupo: percentual_uso_frequente(grupo["frequencia"]),
+        "Usam plataformas do estado toda semana (%)": lambda grupo: percentual_que_comeca(grupo["plataformas"], "toda_semana"),
+        "Sentem que a IA reduz o raciocínio (%)": lambda grupo: percentual_que_comeca(grupo["pensamento"], "sim", "um_pouco"),
+        "Professores proíbem a IA (%)": lambda grupo: percentual_que_comeca(grupo["reacao_professor"], "proibem"),
+    }
+    linhas = []
+    for escola, grupo in filtrado.groupby("escola"):
+        linha = {"Instituição": escola, "Participantes": len(grupo)}
+        linha.update({nome: round(calculo(grupo), 1) for nome, calculo in indicadores.items()})
+        linhas.append(linha)
+    tabela = pd.DataFrame(linhas).sort_values("Participantes", ascending=False)
+    st.dataframe(tabela, width="stretch", hide_index=True)
     if not tabela.empty:
-        grafico(px.bar(tabela, x="escola", y=["Uso_diario", "Uso_redacao", "Autonomia_aumentou"], barmode="group", title="Indicadores comparativos", labels={"value": "Percentual (%)", "variable": "Indicador", "escola": "Instituição"}, color_discrete_sequence=[COLORS["blue"], COLORS["purple"], COLORS["green"]]))
+        longo = tabela.melt(id_vars=["Instituição", "Participantes"], var_name="Indicador", value_name="Percentual")
+        longo["rotulo"] = longo["Instituição"].map(lambda valor: abreviar_rotulo(valor, 22))
+        grafico(px.bar(longo, x="rotulo", y="Percentual", color="Indicador", barmode="group", title="Indicadores comparativos", labels={"rotulo": "", "Percentual": "Percentual (%)"}, color_discrete_sequence=[COLORS["blue"], COLORS["purple"], COLORS["orange"], COLORS["red"]]).update_yaxes(range=[0, 100]), altura=520)
+        st.caption("Percentuais calculados sobre os participantes de cada instituição. Escolas com poucos respondentes devem ser comparadas com cautela.")
 
 
 def relatorio_texto(dataframe: pd.DataFrame) -> str:
     """Monta um relatório textual simples e portátil para download."""
-    uso_diario = percentual_uso_diario(dataframe["frequencia"])
+    secoes = []
+    for chave, enunciado in PERGUNTAS.items():
+        respostas, multipla, _ = resumir_pergunta(dataframe, chave)
+        observacao = " (múltipla escolha: percentuais somam mais de 100%)" if multipla else ""
+        tabela = respostas.rename(columns={"resposta": "Resposta", "quantidade": "Qtd", "percentual": "%"}).to_string(index=False)
+        secoes.append(f"{enunciado}{observacao}\n{tabela}")
+    corpo = "\n\n".join(secoes)
     return f"""EduIA Analytics
 Relatório consolidado | Gerado em {datetime.now():%d/%m/%Y %H:%M}
 
@@ -712,32 +786,32 @@ Autores: Lucas Augusto Canto Silva e Vinicius Gabriel Paulicz Drewnowski
 INDICADORES GERAIS
 Participantes: {len(dataframe)}
 Instituições: {dataframe['escola'].nunique()}
-Uso diário de IA: {uso_diario:.1f}%
+Usam IA 3+ vezes por semana: {percentual_uso_frequente(dataframe['frequencia']):.1f}%
+Sentem que a IA reduz o raciocínio (sim ou um pouco): {percentual_que_comeca(dataframe['pensamento'], 'sim', 'um_pouco'):.1f}%
 
-FREQUÊNCIA DE USO
-{percentual(dataframe, 'frequencia').to_string(index=False)}
+RESPOSTAS POR PERGUNTA
 
-PENSAMENTO PRÓPRIO
-{percentual(dataframe, 'pensamento').to_string(index=False)}
+{corpo}
 """
 
 
 def pdf_graficos(dataframe: pd.DataFrame) -> bytes | None:
-    """Gera um PDF com gráficos principais usando o mecanismo do Plotly.
+    """Gera um PDF com os gráficos principais usando o mecanismo do Plotly.
 
     O exportador do Plotly depende do pacote opcional ``kaleido``. O retorno
     nulo permite que a aplicação continue utilizável quando esse pacote ainda
     não estiver instalado no ambiente de execução.
     """
     try:
-        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
 
-        frequencia = percentual(dataframe, "frequencia")
-        pensamento = percentual(dataframe, "pensamento")
-        figura = go.Figure()
-        figura.add_bar(name="Frequência de uso", x=frequencia["resposta"], y=frequencia["quantidade"], marker_color=COLORS["blue"])
-        figura.add_bar(name="Pensamento próprio", x=pensamento["resposta"], y=pensamento["quantidade"], marker_color=COLORS["purple"])
-        figura.update_layout(title="EduIA Analytics - Indicadores principais", barmode="group", width=1100, height=700, font=dict(family="DM Sans"))
+        paineis = [("pergunta_1", "Frequência de uso da IA"), ("pergunta_7", "A IA diminui a capacidade de pensar?")]
+        figura = make_subplots(rows=len(paineis), cols=1, subplot_titles=[nome for _, nome in paineis], vertical_spacing=.18)
+        for linha, (chave, _) in enumerate(paineis, start=1):
+            respostas = resumir_pergunta(dataframe, chave)[0].sort_values("percentual")
+            figura.add_bar(row=linha, col=1, x=respostas["percentual"], y=respostas["resposta"].map(lambda valor: abreviar_rotulo(valor, 40)), orientation="h", text=respostas["percentual"].map(lambda valor: f"{valor:.1f}%"), textposition="outside", marker_color=COLORS["blue"], showlegend=False)
+            figura.update_xaxes(range=[0, 100], ticksuffix="%", row=linha, col=1)
+        figura.update_layout(title="EduIA Analytics - Indicadores principais", width=1100, height=900, font=dict(family="DM Sans"), margin=dict(l=300))
         return figura.to_image(format="pdf", engine="kaleido")
     except Exception:
         return None
@@ -812,9 +886,9 @@ def main() -> None:
         .section-note, .eyebrow, .secondary-note, [data-testid="stCaptionContainer"] { display: none !important; }
         </style>
         """, unsafe_allow_html=True)
-    dataframe, origem_upload = carregar_dados()
+    dataframe = carregar_dados()
     if pagina == "Dashboard Geral":
-        pagina_dashboard(dataframe, origem_upload)
+        pagina_dashboard(dataframe)
     elif pagina == "Perguntas e Respostas":
         pagina_perguntas(dataframe)
     elif pagina == "Tendências e Comportamentos":
