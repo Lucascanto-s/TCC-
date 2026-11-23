@@ -83,7 +83,7 @@ No início de `app.py` há campos para editar o título do TCC, os autores, o or
 - **Perfil da amostra**: participantes por etapa escolar (com faixa etária) e por instituição.
 - **Perguntas e Respostas**: análise individual de cada pergunta, com filtro por instituição.
 
-As demais páginas seguem o capítulo de análise do TCC. A base exclui o C. E. Professor Erasmo Pilotto (ensino integral com 4 anos de Ensino Médio), totalizando 236 respostas; o botão "Incluir Erasmo Pilotto" na barra lateral mostra a base completa.
+As demais páginas seguem o capítulo de análise do TCC. A base Total_master.xlsx contém as 236 respostas analisadas no TCC.
 
 - **5.1 Tratamento dos dados**: base Tratativas, exclusões, combinações de ferramentas, faixa etária e classes de frequência.
 - **5.3 Uso por ano de ensino**: frequência de uso de IA no Ensino Fundamental × Médio.

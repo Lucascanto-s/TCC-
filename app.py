@@ -346,19 +346,7 @@ def ler_planilha(caminho: str, modificado_em: float, versao: int = VERSAO_DADOS)
     return padronizar_dataframe(pd.concat(tabelas, ignore_index=True))
 
 
-# Escolas fora da análise do TCC (critério metodológico dos autores).
-ESCOLAS_EXCLUIDAS = {"erasmo_pilotto": "C. E. Professor Erasmo Pilotto: escola de ensino integral com 4 anos de Ensino Médio, estrutura diferente das demais"}
-
-
-def filtrar_excluidas(dados: pd.DataFrame) -> pd.DataFrame:
-    chaves = dados["escola"].map(normalizar_nome)
-    manter = ~chaves.map(lambda nome: any(chave in nome for chave in ESCOLAS_EXCLUIDAS))
-    filtrado = dados[manter].reset_index(drop=True)
-    filtrado.attrs["excluidas"] = int((~manter).sum())
-    return filtrado
-
-
-def carregar_dados(incluir_excluidas: bool = False) -> pd.DataFrame:
+def carregar_dados() -> pd.DataFrame:
     """Carrega a base Total_master.xlsx. Sem ela, nenhum resultado é exibido."""
     arquivo_master = Path(__file__).with_name("Total_master.xlsx")
     if not arquivo_master.exists():
@@ -372,11 +360,7 @@ def carregar_dados(incluir_excluidas: bool = False) -> pd.DataFrame:
     if dados.empty:
         st.warning("A planilha Total_master.xlsx não contém respostas.")
         st.stop()
-    if incluir_excluidas:
-        dados = dados.copy()
-        dados.attrs["excluidas"] = 0
-        return dados
-    return filtrar_excluidas(dados)
+    return dados
 
 
 def opcoes(dataframe: pd.DataFrame, coluna: str) -> list[str]:
@@ -590,8 +574,6 @@ def pagina_perfil(dataframe: pd.DataFrame) -> None:
         mostrar(grafico_barras(escolas, "Participantes por instituição", subtitulo_amostra(n), cores=[COLORS["purple"]] * len(escolas)))
     if dataframe["escola"].str.contains("Getúlio").any():
         st.caption("O C. E. Getúlio Vargas não recebeu visita dos pesquisadores: seus estudantes foram abordados nas proximidades de outra instituição participante.")
-    if dataframe.attrs.get("excluidas"):
-        st.caption(f"Não inclui {dataframe.attrs['excluidas']} respostas do C. E. Professor Erasmo Pilotto (ensino integral com 4 anos de Ensino Médio). Use o botão na barra lateral para incluí-las.")
     pequenas = escolas[escolas["quantidade"] < 10]
     if not pequenas.empty:
         st.caption(f"{len(pequenas)} instituição(ões) com menos de 10 respondentes: comparações envolvendo essas escolas devem ser lidas com cautela.")
@@ -756,8 +738,6 @@ def pagina_tratamento(dataframe: pd.DataFrame) -> None:
     arquivo = Path(__file__).with_name("Total_master.xlsx")
     alteracoes = comparar_abas(str(arquivo), arquivo.stat().st_mtime, VERSAO_DADOS) if arquivo.exists() else []
     itens = [f"<li>Base utilizada: aba <b>Tratativas</b> do arquivo Total_master.xlsx, com {n} respostas na análise.</li>"]
-    if dataframe.attrs.get("excluidas"):
-        itens += [f"<li>Excluídas <b>{dataframe.attrs['excluidas']}</b> respostas do {motivo}.</li>" for motivo in ESCOLAS_EXCLUIDAS.values()]
     if dataframe["escola"].str.contains("Getúlio").any():
         itens.append("<li>Estudantes do C. E. Getúlio Vargas foram abordados nas proximidades de outra instituição participante, sem visita específica à escola.</li>")
     for coluna, quantidade in alteracoes:
@@ -1097,11 +1077,10 @@ def main() -> None:
         )
         st.divider()
         modo_apresentacao = st.toggle("Modo apresentação", value=False, help="Esconde notas e rodapés e aumenta o espaço dos gráficos.")
-        incluir_excluidas = st.toggle("Incluir Erasmo Pilotto", value=False, help="Escola de ensino integral com 4 anos de Ensino Médio, excluída da análise do TCC.")
         st.caption(f"TCC · {CURSO}")
     if modo_apresentacao:
         st.markdown("<style>.page-lead, .rodape, [data-testid='stCaptionContainer'] { display: none !important; } .block-container { padding-top: 3rem; max-width: 100%; }</style>", unsafe_allow_html=True)
-    dataframe = carregar_dados(incluir_excluidas)
+    dataframe = carregar_dados()
     PAGINAS[pagina][1](dataframe)
 
 
