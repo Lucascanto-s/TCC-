@@ -13,32 +13,16 @@ COLORS = {
     "charcoal": "#374151",
     "gray": "#9CA3AF",
     "background": "#FFFFFF",
-    "card": "#F5F7FA",
-    "border": "#CBD5E1",
+    "card": "#F8FAFC",
+    "border": "#E2E8F0",
     "title": "#0F172A",
-    "text": "#111111",
+    "text": "#1E293B",
+    "muted": "#64748B",
     "sidebar": "#0F172A",
-    # Aliases legados usados pelas telas que serão revisadas depois.
-    "ink": "#111111",
-    "muted": "#374151",
-    "sky": "#1D4ED8",
-    "lilac": "#9CA3AF",
 }
 
-FONT_SIZES = {
-    "title": 28,
-    "subtitle": 22,
-    "body": 18,
-    "axis": 16,
-    "value": 18,
-    "kpi": 36,
-    "hover": 16,
-}
-
-GRAPH_PALETTE = [
-    COLORS["blue"], COLORS["orange"], COLORS["green"],
-    COLORS["red"], COLORS["purple"], COLORS["charcoal"],
-]
+# Fontes do sistema: funcionam sem internet no dia da apresentação.
+FONT_FAMILY = "Segoe UI, Inter, Roboto, Helvetica Neue, Arial, sans-serif"
 
 
 def apply_layout(fig: go.Figure, height: int = 500) -> go.Figure:
@@ -48,18 +32,21 @@ def apply_layout(fig: go.Figure, height: int = 500) -> go.Figure:
         height=height,
         paper_bgcolor=COLORS["background"],
         plot_bgcolor=COLORS["background"],
-        font=dict(size=FONT_SIZES["body"], color=COLORS["text"], family="DM Sans"),
-        title=dict(font=dict(size=24, color=COLORS["title"], family="Space Grotesk")),
-        margin=dict(l=260, r=60, t=80, b=60),
-        hoverlabel=dict(font=dict(size=FONT_SIZES["hover"], color=COLORS["text"]), bgcolor=COLORS["background"]),
-        legend=dict(font=dict(size=FONT_SIZES["axis"], color=COLORS["text"])),
+        font=dict(size=16, color=COLORS["text"], family=FONT_FAMILY),
+        title=dict(font=dict(size=20, color=COLORS["title"], family=FONT_FAMILY), x=0, xanchor="left"),
+        margin=dict(l=10, r=30, t=80, b=30),
+        hoverlabel=dict(font=dict(size=15, family=FONT_FAMILY), bgcolor="white"),
+        legend=dict(font=dict(size=15, color=COLORS["text"])),
     )
-    fig.update_xaxes(automargin=True, tickfont=dict(size=FONT_SIZES["axis"], color=COLORS["text"]), title_font=dict(size=FONT_SIZES["axis"], color=COLORS["title"]), showgrid=False)
-    fig.update_yaxes(automargin=True, tickfont=dict(size=FONT_SIZES["axis"], color=COLORS["text"]), title_font=dict(size=FONT_SIZES["axis"], color=COLORS["title"]), gridcolor="#E5E7EB")
+    fig.update_xaxes(automargin=True, tickfont=dict(size=15, color=COLORS["text"]), showgrid=False, zeroline=False)
+    fig.update_yaxes(automargin=True, tickfont=dict(size=16, color=COLORS["text"]), gridcolor="#EEF2F7", zeroline=False)
     return fig
 
 
 PLOTLY_CONFIG = {
-    "displayModeBar": False,
+    "displayModeBar": "hover",
+    "displaylogo": False,
+    "modeBarButtonsToRemove": ["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d"],
+    "toImageButtonOptions": {"format": "png", "scale": 2},
     "responsive": True,
 }
