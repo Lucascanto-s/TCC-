@@ -68,7 +68,7 @@ Se o Streamlit foi instalado dentro de um ambiente virtual, ative o ambiente ant
 
 ## Dados
 
-O aplicativo lê o arquivo `Total_master.xlsx` (respostas do Google Forms) na mesma pasta de `app.py`. Se existir uma aba chamada `Principal`, apenas ela é usada; caso contrário, as abas não vazias são combinadas.
+O aplicativo lê o arquivo `Total_master.xlsx` (respostas do Google Forms) na mesma pasta de `app.py`. É usada a aba `Tratativas` (base tratada); na falta dela, a aba `Principal`.
 
 As perguntas são identificadas pelo número no início do cabeçalho (`1.`, `2.`, ...). Nomes de escolas que diferem só em maiúsculas ou acentos são unificados.
 
@@ -80,14 +80,18 @@ No início de `app.py` há campos para editar o título do TCC, os autores, o or
 
 ## Páginas
 
-- **Início**: capa do trabalho, indicadores gerais e principais achados.
-- **Perfil da amostra**: participantes por etapa escolar e por instituição.
+- **Perfil da amostra**: participantes por etapa escolar (com faixa etária) e por instituição.
 - **Perguntas e Respostas**: análise individual de cada pergunta, com filtro por instituição.
-- **Uso da IA**: frequência de uso, ferramentas e plataformas do Estado.
-- **Finalidade do uso**: para que os estudantes usam a IA.
-- **IA e Professores**: reação dos professores e comparação IA x professor.
-- **Pensamento próprio**: percepção sobre o raciocínio e cruzamento com a intensidade de uso.
-- **Escolas e etapas**: comparação de indicadores entre grupos.
+
+As demais páginas seguem o capítulo 4 do TCC (Apresentação e análise dos resultados):
+
+- **4.1 Tratamento dos dados**: base Tratativas, padronizações, combinações de ferramentas e faixa etária.
+- **4.2 Uso por etapa**: frequência de uso de IA no Ensino Fundamental × Médio.
+- **4.2.1 Uso × finalidade**: perguntas 1 × 3.
+- **4.2.2 Uso × dependência**: perguntas 1 × 7, também por etapa.
+- **4.2.3 Professores × atividades**: perguntas 5 × 6.
+- **4.3 Síntese dos achados**: resumo dos cruzamentos com os números atuais da planilha.
+- **4.3 Redação Paraná e proficiência**: análise exploratória por escola e etapa.
 - **Exportação**: relatório TXT, planilha Excel com resumos e PDF dos gráficos.
 
 O botão **Modo apresentação** na barra lateral esconde notas e rodapés.
