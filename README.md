@@ -68,21 +68,29 @@ Se o Streamlit foi instalado dentro de um ambiente virtual, ative o ambiente ant
 
 ## Dados
 
-O aplicativo procura automaticamente o arquivo `Total_master.xlsx` na mesma pasta de `app.py`. Quando esse arquivo não existe, o dashboard usa uma base demonstrativa para permitir a execução e a apresentação visual.
+O aplicativo lê o arquivo `Total_master.xlsx` (respostas do Google Forms) na mesma pasta de `app.py`. Se existir uma aba chamada `Principal`, apenas ela é usada; caso contrário, as abas não vazias são combinadas.
 
-O arquivo Excel pode conter várias abas. As abas não vazias são combinadas automaticamente. O sistema reconhece cabeçalhos em português ou inglês e também tenta identificar perguntas completas do formulário.
+As perguntas são identificadas pelo número no início do cabeçalho (`1.`, `2.`, ...). Nomes de escolas que diferem só em maiúsculas ou acentos são unificados.
 
-## Funcionalidades
+Sem a planilha, o app mostra um aviso e não exibe nenhum resultado (não há dados fictícios).
 
-- Visão geral dos participantes e das instituições.
-- Distribuição por série, frequência e finalidade de uso da IA.
-- Análise das plataformas Redação Paraná e Fluência Paraná.
-- Comparação entre IA e mediação do professor.
-- Indicadores de autonomia e pensamento próprio.
-- Consulta individual das perguntas e respostas do questionário.
-- Tendências por série ou instituição.
-- Comparação entre escolas.
-- Exportação de relatório textual.
+## Personalização
+
+No início de `app.py` há campos para editar o título do TCC, os autores, o orientador, a instituição e o período de coleta. Também há o dicionário `INTERPRETACOES`, onde os autores podem escrever a interpretação de cada pergunta; o texto aparece na aba Perguntas e Respostas.
+
+## Páginas
+
+- **Início**: capa do trabalho, indicadores gerais e principais achados.
+- **Perfil da amostra**: participantes por etapa escolar e por instituição.
+- **Perguntas e Respostas**: análise individual de cada pergunta, com filtro por instituição.
+- **Uso da IA**: frequência de uso, ferramentas e plataformas do Estado.
+- **Finalidade do uso**: para que os estudantes usam a IA.
+- **IA e Professores**: reação dos professores e comparação IA x professor.
+- **Pensamento próprio**: percepção sobre o raciocínio e cruzamento com a intensidade de uso.
+- **Escolas e etapas**: comparação de indicadores entre grupos.
+- **Exportação**: relatório TXT, planilha Excel com resumos e PDF dos gráficos.
+
+O botão **Modo apresentação** na barra lateral esconde notas e rodapés.
 
 ## Estrutura principal
 
@@ -91,7 +99,7 @@ O arquivo Excel pode conter várias abas. As abas não vazias são combinadas au
 ├── app.py             # Aplicação Streamlit e telas do dashboard
 ├── theme.py           # Cores, fontes e configuração dos gráficos
 ├── requirements.txt   # Dependências Python
-├── Total_master.xlsx  # Base principal opcional
+├── Total_master.xlsx  # Respostas do questionário
 └── README.md          # Instruções do projeto
 ```
 
@@ -111,7 +119,7 @@ python3 -m streamlit run app.py --server.port 8502
 
 ### O arquivo Excel não foi encontrado
 
-Coloque `Total_master.xlsx` na mesma pasta de `app.py`. Sem esse arquivo, o app continua funcionando com dados demonstrativos.
+Coloque `Total_master.xlsx` na mesma pasta de `app.py` e recarregue a página.
 
 ### Como parar o aplicativo
 
