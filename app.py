@@ -346,7 +346,19 @@ def ler_planilha(caminho: str, modificado_em: float, versao: int = VERSAO_DADOS)
     return padronizar_dataframe(pd.concat(tabelas, ignore_index=True))
 
 
-def carregar_dados() -> pd.DataFrame:
+# Escolas fora da análise do TCC (critério metodológico dos autores).
+ESCOLAS_EXCLUIDAS = {"erasmo_pilotto": "C. E. Professor Erasmo Pilotto: escola de ensino integral com 4 anos de Ensino Médio, estrutura diferente das demais"}
+
+
+def filtrar_excluidas(dados: pd.DataFrame) -> pd.DataFrame:
+    chaves = dados["escola"].map(normalizar_nome)
+    manter = ~chaves.map(lambda nome: any(chave in nome for chave in ESCOLAS_EXCLUIDAS))
+    filtrado = dados[manter].reset_index(drop=True)
+    filtrado.attrs["excluidas"] = int((~manter).sum())
+    return filtrado
+
+
+def carregar_dados(incluir_excluidas: bool = False) -> pd.DataFrame:
     """Carrega a base Total_master.xlsx. Sem ela, nenhum resultado é exibido."""
     arquivo_master = Path(__file__).with_name("Total_master.xlsx")
     if not arquivo_master.exists():
@@ -360,7 +372,11 @@ def carregar_dados() -> pd.DataFrame:
     if dados.empty:
         st.warning("A planilha Total_master.xlsx não contém respostas.")
         st.stop()
-    return dados
+    if incluir_excluidas:
+        dados = dados.copy()
+        dados.attrs["excluidas"] = 0
+        return dados
+    return filtrar_excluidas(dados)
 
 
 def opcoes(dataframe: pd.DataFrame, coluna: str) -> list[str]:
@@ -400,7 +416,7 @@ def resumir_pergunta(dataframe: pd.DataFrame, chave: str) -> tuple[pd.DataFrame,
     resumo = pd.DataFrame({"completo": contagem.index, "quantidade": contagem.values})
     resumo["resposta"] = resumo["completo"].map(rotulo_curto)
     resumo = resumo.groupby("resposta", as_index=False).agg(completo=("completo", "first"), quantidade=("quantidade", "sum"))
-    resumo["percentual"] = (resumo["quantidade"] / total * 100).round(1)
+    resumo["percentual"] = (resumo["quantidade"] / total * 100).round(2)
     ordem = ORDEM_RESPOSTAS.get(chave)
     if ordem:
         resumo["_ordem"] = resumo["resposta"].map(lambda valor: ordem.index(valor) if valor in ordem else len(ordem))
@@ -414,6 +430,15 @@ def indice_frequencia(respostas: pd.Series) -> pd.Series:
     """Escala de uso da IA (pergunta 1): 0 = não utiliza ... 4 = sempre."""
     valores = respostas.fillna("").astype(str).map(normalizar_nome)
     return valores.map(lambda valor: 4 if "sempre" in valor else 3 if "frequentemente" in valor or "sim_com_frequencia" in valor else 2 if "vezes" in valor else 1 if "raramente" in valor else 0)
+
+
+CLASSES_FREQUENCIA = ["Uso constante ou frequente", "Uso não constante", "Não utilizo"]
+CORES_CLASSE = {"Uso constante ou frequente": "#1D4ED8", "Uso não constante": "#F59E0B", "Não utilizo": "#94A3B8"}
+
+
+def classe_frequencia(respostas: pd.Series) -> pd.Series:
+    """Sempre/Frequentemente = constante; Às vezes/Raramente = não constante."""
+    return indice_frequencia(respostas).map(lambda indice: CLASSES_FREQUENCIA[0] if indice >= 3 else CLASSES_FREQUENCIA[1] if indice >= 1 else CLASSES_FREQUENCIA[2])
 
 
 def percentual_uso_frequente(respostas: pd.Series) -> float:
@@ -432,9 +457,8 @@ def percentual_que_comeca(respostas: pd.Series, *prefixos: str) -> float:
 
 
 def pct(valor: float) -> str:
-    """Formata percentual sem casas decimais desnecessárias (45% ou 45,5%)."""
-    texto = f"{valor:.0f}" if abs(valor - round(valor)) < 0.05 else f"{valor:.1f}"
-    return texto.replace(".", ",") + "%"
+    """Formata percentual com duas casas, como no texto do TCC (ex.: 76,98%)."""
+    return f"{valor:.2f}".replace(".", ",") + "%"
 
 
 # -----------------------------------------------------------------------------
@@ -512,7 +536,7 @@ def grafico_barras(resumo: pd.DataFrame, titulo: str, subtitulo: str, cores: lis
         hovertemplate="<b>%{customdata[0]}</b><br>%{x:.1f}% · %{customdata[1]} respostas<extra></extra>",
     ))
     figura.update_yaxes(autorange="reversed", showgrid=False)
-    figura.update_xaxes(visible=False, range=[0, max(resumo["percentual"].max() * 1.25, 10)])
+    figura.update_xaxes(visible=False, range=[0, max(resumo["percentual"].max() * 1.45, 12)])
     figura.update_layout(title=titulo_grafico(titulo, subtitulo), bargap=.32, showlegend=False)
     return apply_layout(figura, 150 + 62 * len(resumo))
 
@@ -550,20 +574,24 @@ def grafico_rosca(resumo: pd.DataFrame, titulo: str, subtitulo: str, n: int) -> 
 # Páginas
 # -----------------------------------------------------------------------------
 def pagina_perfil(dataframe: pd.DataFrame) -> None:
-    cabecalho("Amostra", "Perfil dos participantes", "Distribuição dos estudantes por etapa escolar e por instituição de ensino.")
+    cabecalho("Seção 4.1", "Caracterização da amostra", f"{len(dataframe)} estudantes de {dataframe['escola'].nunique()} instituições, por etapa escolar e por escola.")
     n = len(dataframe)
     series = dataframe["serie"].value_counts().rename_axis("completo").reset_index(name="quantidade")
     series["resposta"] = [f"{rotulo_curto(serie)} · {faixa_etaria(serie)}" for serie in series["completo"]]
-    series["percentual"] = (series["quantidade"] / n * 100).round(1)
+    series["percentual"] = (series["quantidade"] / n * 100).round(2)
     series = series.assign(_ordem=series["completo"].map(ordem_serie)).sort_values("_ordem").drop(columns="_ordem").reset_index(drop=True)
     escolas = dataframe["escola"].value_counts().rename_axis("completo").reset_index(name="quantidade")
     escolas["resposta"] = escolas["completo"].map(nome_escola)
-    escolas["percentual"] = (escolas["quantidade"] / n * 100).round(1)
-    esquerda, direita = st.columns([1, 1.35])
+    escolas["percentual"] = (escolas["quantidade"] / n * 100).round(2)
+    esquerda, direita = st.columns([1.1, 1])
     with esquerda:
         mostrar(grafico_barras(series, "Participantes por etapa escolar", subtitulo_amostra(n), cores=[COR_DESTAQUE] * len(series)))
     with direita:
         mostrar(grafico_barras(escolas, "Participantes por instituição", subtitulo_amostra(n), cores=[COLORS["purple"]] * len(escolas)))
+    if dataframe["escola"].str.contains("Getúlio").any():
+        st.caption("O C. E. Getúlio Vargas não recebeu visita dos pesquisadores: seus estudantes foram abordados nas proximidades de outra instituição participante.")
+    if dataframe.attrs.get("excluidas"):
+        st.caption(f"Não inclui {dataframe.attrs['excluidas']} respostas do C. E. Professor Erasmo Pilotto (ensino integral com 4 anos de Ensino Médio). Use o botão na barra lateral para incluí-las.")
     pequenas = escolas[escolas["quantidade"] < 10]
     if not pequenas.empty:
         st.caption(f"{len(pequenas)} instituição(ões) com menos de 10 respondentes: comparações envolvendo essas escolas devem ser lidas com cautela.")
@@ -671,7 +699,7 @@ def grafico_empilhado(base: pd.DataFrame, linha: str, coluna: str, ordem_linhas:
     figura.update_yaxes(autorange="reversed")
     tabela = contagem.loc[linhas].copy()
     for categoria in tabela.columns:
-        tabela[f"{categoria} (%)"] = percentuais.loc[linhas, categoria].round(1)
+        tabela[f"{categoria} (%)"] = percentuais.loc[linhas, categoria].round(2)
     tabela.insert(0, "Total", contagem.loc[linhas].sum(axis=1))
     return apply_layout(figura, 190 + 78 * len(linhas)), tabela.reset_index().rename(columns={linha: "Grupo"})
 
@@ -713,7 +741,7 @@ def comparar_abas(caminho: str, modificado_em: float, versao: int = VERSAO_DADOS
 
 
 def pagina_tratamento(dataframe: pd.DataFrame) -> None:
-    cabecalho("Seção 4.1", "Tratamento e organização dos dados", "Correção de inconsistências de preenchimento, padronização das categorias de resposta e criação de variáveis complementares.")
+    cabecalho("Seção 5.1", "Tratamento dos dados", "Correção de inconsistências, padronização das categorias de resposta e criação de colunas complementares para as análises.")
     n = len(dataframe)
     contagem_etapa = dataframe["etapa"].value_counts()
     for coluna, (rotulo, valor, cor) in zip(st.columns(4), [
@@ -727,7 +755,11 @@ def pagina_tratamento(dataframe: pd.DataFrame) -> None:
 
     arquivo = Path(__file__).with_name("Total_master.xlsx")
     alteracoes = comparar_abas(str(arquivo), arquivo.stat().st_mtime, VERSAO_DADOS) if arquivo.exists() else []
-    itens = [f"<li>Base utilizada: aba <b>Tratativas</b> do arquivo Total_master.xlsx, com {n} respostas válidas.</li>"]
+    itens = [f"<li>Base utilizada: aba <b>Tratativas</b> do arquivo Total_master.xlsx, com {n} respostas na análise.</li>"]
+    if dataframe.attrs.get("excluidas"):
+        itens += [f"<li>Excluídas <b>{dataframe.attrs['excluidas']}</b> respostas do {motivo}.</li>" for motivo in ESCOLAS_EXCLUIDAS.values()]
+    if dataframe["escola"].str.contains("Getúlio").any():
+        itens.append("<li>Estudantes do C. E. Getúlio Vargas foram abordados nas proximidades de outra instituição participante, sem visita específica à escola.</li>")
     for coluna, quantidade in alteracoes:
         numero = coluna.split(".")[0]
         descricao = f"pergunta {numero}" if numero.isdigit() else coluna
@@ -735,16 +767,23 @@ def pagina_tratamento(dataframe: pd.DataFrame) -> None:
     itens += [
         "<li>Variações de “Não utilizo” unificadas numa única categoria; nomes de escolas grafados de formas diferentes unificados.</li>",
         "<li>Variável complementar com as <b>7 combinações</b> de ferramentas marcadas na pergunta 2.</li>",
-        "<li>Classificação por <b>faixa etária</b> e por <b>etapa de ensino</b> (Fundamental × Médio), a partir do ano escolar.</li>",
+        "<li>Coluna <b>“Idades dos Alunos”</b>: faixa etária estimada a partir do ano escolar; e classificação por <b>etapa de ensino</b> (Fundamental × Médio).</li>",
+        "<li>Classificação da frequência de uso em <b>3 grupos</b>: uso constante ou frequente (“Sempre” e “Frequentemente”), uso não constante (“Às vezes” e “Raramente”) e “Não utilizo”.</li>",
     ]
     caixa("Etapas do tratamento", f"<ul style='margin:.2rem 0 0 1rem;padding:0'>{''.join(itens)}</ul>", autores=True)
 
     categorias = ["Só IA generativa", "Só editores", "Só plataformas do Estado", "IA generativa + editores", "IA generativa + plataformas", "Plataformas + editores", "IA generativa + plataformas + editores"]
     contagem = dataframe["categoria_uso"].value_counts()
     resumo = pd.DataFrame({"resposta": categorias, "completo": categorias, "quantidade": [int(contagem.get(categoria, 0)) for categoria in categorias]})
-    resumo["percentual"] = (resumo["quantidade"] / n * 100).round(1)
+    resumo["percentual"] = (resumo["quantidade"] / n * 100).round(2)
     resumo = resumo.sort_values("quantidade", ascending=False).reset_index(drop=True)
     mostrar(grafico_barras(resumo, "Variável complementar: combinações de ferramentas", "Pergunta 2 classificada em 7 categorias · " + subtitulo_amostra(n)))
+
+    classes = classe_frequencia(dataframe["frequencia"]).value_counts()
+    resumo_classes = pd.DataFrame({"resposta": CLASSES_FREQUENCIA, "completo": ["Sempre ou Frequentemente (3 a 4 vezes por semana)", "Às vezes (1 a 2 vezes por semana) ou Raramente (1 a 2 vezes por mês)", "Não utilizo"],
+                                   "quantidade": [int(classes.get(classe, 0)) for classe in CLASSES_FREQUENCIA]})
+    resumo_classes["percentual"] = (resumo_classes["quantidade"] / n * 100).round(2)
+    mostrar(grafico_barras(resumo_classes, "Variável complementar: classificação da frequência de uso", "Pergunta 1 agrupada em 3 classes · " + subtitulo_amostra(n), cores=list(CORES_CLASSE.values())))
 
     faixas = dataframe.groupby("serie").size().rename("Respondentes").reset_index()
     faixas = faixas.assign(_ordem=faixas["serie"].map(ordem_serie)).sort_values("_ordem").drop(columns="_ordem")
@@ -757,7 +796,7 @@ def pagina_tratamento(dataframe: pd.DataFrame) -> None:
 
 
 def pagina_secao_42(dataframe: pd.DataFrame) -> None:
-    cabecalho("Seção 4.2", "Frequência de uso da IA por etapa de ensino", "Cruzamento da frequência de utilização de IA (pergunta 1) com a etapa de ensino dos estudantes.")
+    cabecalho("Seção 5.3", "Frequência de utilização de IA por diferentes anos de ensino", "Cruzamento da frequência de utilização de IA (pergunta 1) com a etapa de ensino dos estudantes.")
     base = base_cruzamentos(dataframe)
     uso = {etapa: percentual_uso_frequente(base.loc[base["etapa"] == etapa, "frequencia"]) for etapa in ETAPAS}
     for coluna, etapa in zip(st.columns(2), ETAPAS):
@@ -772,7 +811,7 @@ def pagina_secao_42(dataframe: pd.DataFrame) -> None:
 
 
 def pagina_secao_421(dataframe: pd.DataFrame) -> None:
-    cabecalho("Seção 4.2.1", "Frequência de uso × finalidade principal", "Cruzamento da rotina de uso de IA (pergunta 1) com a principal finalidade em atividades escolares (pergunta 3).")
+    cabecalho("Seção 5.3.1", "Frequência de uso × finalidade principal", "Cruzamento da rotina de uso de IA (pergunta 1) com a principal finalidade em atividades escolares (pergunta 3).")
     base = base_cruzamentos(dataframe)
     usuarios = base[base["freq"] != "Não utilizo"]
     figura, tabela = grafico_empilhado(usuarios, "freq", "fin", ORDEM_USO, CORES_FINALIDADE, "Finalidade principal, por frequência de uso", f"Pergunta 1 × Pergunta 3 · exclui quem não utiliza IA (n = {len(usuarios)})")
@@ -788,7 +827,7 @@ def pagina_secao_421(dataframe: pd.DataFrame) -> None:
 
 
 def pagina_secao_422(dataframe: pd.DataFrame) -> None:
-    cabecalho("Seção 4.2.2", "Frequência de uso × percepção de dependência", "Cruzamento da frequência de uso de IA (pergunta 1) com a percepção de dependência (pergunta 7).")
+    cabecalho("Seção 5.3.2", "Frequência de uso × percepção de dependência", "Cruzamento da frequência de uso de IA (pergunta 1) com a percepção de dependência (pergunta 7).")
     base = base_cruzamentos(dataframe)
     dependencia = {etapa: percentual_que_comeca(base.loc[base["etapa"] == etapa, "pensamento"], "sim", "um_pouco") for etapa in ETAPAS}
     for coluna, etapa in zip(st.columns(2), ETAPAS):
@@ -808,9 +847,50 @@ def pagina_secao_422(dataframe: pd.DataFrame) -> None:
     rodape(dataframe)
 
 
+def pagina_secao_533(dataframe: pd.DataFrame) -> None:
+    cabecalho("Seção 5.3.3", "Frequência de uso de IA × idade dos alunos", "Cruzamento da faixa etária estimada (coluna “Idades dos Alunos”) com a frequência de uso de IA agrupada em 3 classes.")
+    base = dataframe.assign(classe=classe_frequencia(dataframe["frequencia"]), faixa=dataframe["serie"].map(faixa_etaria))
+    contagem = pd.crosstab(base["faixa"], base["classe"])
+    percentuais = contagem.div(contagem.sum(axis=1), axis=0) * 100
+    faixas = [faixa for faixa in FAIXAS_ETARIAS if faixa in percentuais.index]
+    eixo = [f"{faixa}<br><span style='font-size:13px;color:#64748B'>n = {int(contagem.loc[faixa].sum())}</span>" for faixa in faixas]
+    figura = go.Figure()
+    for classe in CLASSES_FREQUENCIA:
+        if classe not in percentuais.columns:
+            continue
+        valores = [float(percentuais.loc[faixa, classe]) for faixa in faixas]
+        figura.add_scatter(x=eixo, y=valores, mode="lines+markers+text", name=classe, line=dict(color=CORES_CLASSE[classe], width=4 if classe != "Não utilizo" else 2, dash="solid" if classe != "Não utilizo" else "dot"),
+                           marker=dict(size=11), text=[pct(valor) for valor in valores], textposition="top center", textfont=dict(size=15, color=CORES_CLASSE[classe]),
+                           hovertemplate=f"<b>{classe}</b><br>%{{x}}<br>%{{y:.1f}}%<extra></extra>")
+    figura.update_yaxes(range=[0, 100], ticksuffix="%", title="Percentual na faixa etária", showgrid=True)
+    figura.update_layout(title=titulo_grafico("Tendência de uso frequente e não frequente de IA, por idade", "Percentual dentro de cada faixa etária"),
+                         legend=dict(orientation="h", y=-.2, x=0))
+    mostrar(apply_layout(figura, 500))
+    constante = percentuais.get(CLASSES_FREQUENCIA[0], pd.Series(dtype=float))
+    nao_constante = percentuais.get(CLASSES_FREQUENCIA[1], pd.Series(dtype=float))
+    if len(faixas) >= 2:
+        caixa("Leitura dos dados", f"O uso constante ou frequente passa de <b>{pct(constante[faixas[0]])}</b> entre os estudantes de {faixas[0]} para <b>{pct(constante[faixas[-1]])}</b> entre os de {faixas[-1]}. "
+              f"Em sentido contrário, o uso não constante cai de <b>{pct(nao_constante[faixas[0]])}</b> para <b>{pct(nao_constante[faixas[-1]])}</b>. Os estudantes mais velhos da amostra tendem a usar IA com mais frequência, mas os dados não permitem afirmar que a idade seja a causa.")
+    tabela = contagem.loc[faixas].copy()
+    for classe in tabela.columns:
+        tabela[f"{classe} (%)"] = percentuais.loc[faixas, classe].round(2)
+    tabela.insert(0, "Total", contagem.loc[faixas].sum(axis=1))
+    mostrar_tabela_cruzamento(tabela.reset_index().rename(columns={"faixa": "Faixa etária"}))
+    st.caption("A faixa etária é estimada a partir do ano escolar. " + NOTA_DESCRITIVA)
+    rodape(dataframe)
+
+
 def pagina_secao_423(dataframe: pd.DataFrame) -> None:
-    cabecalho("Seção 4.2.3", "Reação dos professores × atividades com IA", "Cruzamento da reação dos professores ao uso de IA (pergunta 5) com a proposição de atividades que exigiam IA (pergunta 6).")
+    cabecalho("Seção 5.4", "Reação dos professores × atividades com IA", "Cruzamento da reação dos professores ao uso de IA (pergunta 5) com a proposição de atividades que exigiam IA (pergunta 6).")
     base = base_cruzamentos(dataframe)
+    for coluna, (rotulo, valor, cor) in zip(st.columns(4), [
+        ("Professores proíbem e penalizam", pct(percentual_que_comeca(dataframe["reacao_professor"], "proibem")), COLORS["red"]),
+        ("Aceitam, sem copia e cola", pct(percentual_que_comeca(dataframe["reacao_professor"], "aceitam")), COLORS["blue"]),
+        ("Atividades com IA: raramente", pct(percentual_que_comeca(dataframe["atividade_ia"], "sim_raramente")), COLORS["orange"]),
+        ("Nunca tiveram atividade com IA", pct(percentual_que_comeca(dataframe["atividade_ia"], "nunca")), COLORS["charcoal"]),
+    ]):
+        with coluna:
+            kpi(rotulo, valor, cor)
     figura, tabela = grafico_empilhado(base, "reacao", "ativ", ORDEM_REACAO, CORES_ATIVIDADE, "Atividades que exigiam IA, por reação dos professores", "Pergunta 5 × Pergunta 6 · percentual dentro de cada reação")
     mostrar(figura)
     partes = []
@@ -826,7 +906,7 @@ def pagina_secao_423(dataframe: pd.DataFrame) -> None:
 
 
 def pagina_sintese(dataframe: pd.DataFrame) -> None:
-    cabecalho("Seção 4.3", "Síntese dos principais achados", "Resumo dos cruzamentos realizados na análise dos resultados.")
+    cabecalho("Resultados", "Síntese dos principais achados", "Resumo dos cruzamentos realizados na análise dos resultados.")
     base = base_cruzamentos(dataframe)
     usuarios = base[base["freq"] != "Não utilizo"]
     frequentes = usuarios[indice_frequencia(usuarios["frequencia"]) >= 3]
@@ -838,11 +918,11 @@ def pagina_sintese(dataframe: pd.DataFrame) -> None:
     uso = {etapa: percentual_uso_frequente(base.loc[base["etapa"] == etapa, "frequencia"]) for etapa in ETAPAS}
     dependencia = {etapa: percentual_que_comeca(base.loc[base["etapa"] == etapa, "pensamento"], "sim", "um_pouco") for etapa in ETAPAS}
     achados = [
-        (f"{pct(apoio)} × {pct(depende)}", "Entre quem usa IA 3+ vezes por semana, uma parte vê a IA só como apoio e outra reconhece algum grau de dependência: a intensidade de uso, sozinha, não define a percepção.", "Seção 4.2.2"),
-        (pct(finalidades.iloc[0]), f"dos usuários frequentes usam a IA principalmente para “{finalidades.index[0].lower()}”, seguida de “{finalidades.index[1].lower()}” ({pct(finalidades.iloc[1])}).", "Seção 4.2.1"),
+        (f"{pct(apoio)} × {pct(depende)}", "Entre quem usa IA 3+ vezes por semana, uma parte vê a IA só como apoio e outra reconhece algum grau de dependência: a intensidade de uso, sozinha, não define a percepção.", "Seção 5.3.2"),
+        (pct(finalidades.iloc[0]), f"dos usuários frequentes usam a IA principalmente para “{finalidades.index[0].lower()}”, seguida de “{finalidades.index[1].lower()}” ({pct(finalidades.iloc[1])}).", "Seção 5.3.1"),
         (pct(parcial), "responderam “Parcialmente” à comparação entre IA e professor: o papel da IA é visto como complementar.", "Pergunta 8"),
-        (f"{pct(min(alguma.values()))} a {pct(max(alguma.values()))}", "já tiveram atividade que exigia IA, conforme a reação do professor: incentivo, tolerância e proibição convivem com diferentes frequências de atividades.", "Seção 4.2.3"),
-        (f"{pct(uso['Ensino Médio'])} × {pct(uso['Ensino Fundamental'])}", f"uso constante no Ensino Médio × Fundamental, com percepção de dependência próxima entre as etapas ({pct(dependencia['Ensino Médio'])} × {pct(dependencia['Ensino Fundamental'])}).", "Seção 4.2"),
+        (f"{pct(min(alguma.values()))} a {pct(max(alguma.values()))}", "já tiveram atividade que exigia IA, conforme a reação do professor: incentivo, tolerância e proibição convivem com diferentes frequências de atividades.", "Seção 5.4"),
+        (f"{pct(uso['Ensino Médio'])} × {pct(uso['Ensino Fundamental'])}", f"uso constante no Ensino Médio × Fundamental, com percepção de dependência próxima entre as etapas ({pct(dependencia['Ensino Médio'])} × {pct(dependencia['Ensino Fundamental'])}).", "Seção 5.3"),
     ]
     cartoes = "".join(f"<div class='achado'><div class='num'>{numero}</div><div class='txt'>{texto}</div><div class='ref'>{referencia}</div></div>" for numero, texto, referencia in achados)
     st.markdown(f"<div class='achados'>{cartoes}</div>", unsafe_allow_html=True)
@@ -863,7 +943,7 @@ PROFICIENCIA = {
 
 
 def pagina_proficiencia(dataframe: pd.DataFrame) -> None:
-    cabecalho("Seção 4.3 · Análise exploratória", "Redação Paraná e proficiência escolar", "Uso semanal das plataformas do Estado (pergunta 4) comparado à proficiência média das escolas em Língua Portuguesa e Matemática.")
+    cabecalho("Seção 5.5 · Análise exploratória", "Redação Paraná e proficiência escolar", "Uso semanal das plataformas do Estado (pergunta 4) comparado à proficiência média das escolas em Língua Portuguesa e Matemática.")
     controles = st.columns(2)
     with controles[0]:
         etapa = st.radio("Etapa", ETAPAS, horizontal=True)
@@ -988,13 +1068,14 @@ def pagina_exportacao(dataframe: pd.DataFrame) -> None:
 PAGINAS = {
     "Perfil da amostra": ("people", pagina_perfil),
     "Perguntas e Respostas": ("chat-square-text", pagina_perguntas),
-    "4.1 Tratamento dos dados": ("funnel", pagina_tratamento),
-    "4.2 Uso por etapa": ("bar-chart-steps", pagina_secao_42),
-    "4.2.1 Uso × finalidade": ("bullseye", pagina_secao_421),
-    "4.2.2 Uso × dependência": ("lightbulb", pagina_secao_422),
-    "4.2.3 Professores × atividades": ("person-video3", pagina_secao_423),
-    "4.3 Síntese dos achados": ("stars", pagina_sintese),
-    "4.3 Redação Paraná e proficiência": ("graph-up", pagina_proficiencia),
+    "5.1 Tratamento dos dados": ("funnel", pagina_tratamento),
+    "5.3 Uso por ano de ensino": ("bar-chart-steps", pagina_secao_42),
+    "5.3.1 Uso × finalidade": ("bullseye", pagina_secao_421),
+    "5.3.2 Uso × dependência": ("lightbulb", pagina_secao_422),
+    "5.3.3 Uso × idade": ("graph-up-arrow", pagina_secao_533),
+    "5.4 Professores × atividades": ("person-video3", pagina_secao_423),
+    "5.5 Redação Paraná e proficiência": ("graph-up", pagina_proficiencia),
+    "Síntese dos achados": ("stars", pagina_sintese),
     "Exportação": ("download", pagina_exportacao),
 }
 
@@ -1016,10 +1097,11 @@ def main() -> None:
         )
         st.divider()
         modo_apresentacao = st.toggle("Modo apresentação", value=False, help="Esconde notas e rodapés e aumenta o espaço dos gráficos.")
+        incluir_excluidas = st.toggle("Incluir Erasmo Pilotto", value=False, help="Escola de ensino integral com 4 anos de Ensino Médio, excluída da análise do TCC.")
         st.caption(f"TCC · {CURSO}")
     if modo_apresentacao:
         st.markdown("<style>.page-lead, .rodape, [data-testid='stCaptionContainer'] { display: none !important; } .block-container { padding-top: 3rem; max-width: 100%; }</style>", unsafe_allow_html=True)
-    dataframe = carregar_dados()
+    dataframe = carregar_dados(incluir_excluidas)
     PAGINAS[pagina][1](dataframe)
 
 

@@ -83,15 +83,15 @@ No início de `app.py` há campos para editar o título do TCC, os autores, o or
 - **Perfil da amostra**: participantes por etapa escolar (com faixa etária) e por instituição.
 - **Perguntas e Respostas**: análise individual de cada pergunta, com filtro por instituição.
 
-As demais páginas seguem o capítulo 4 do TCC (Apresentação e análise dos resultados):
+As demais páginas seguem o capítulo de análise do TCC. A base exclui o C. E. Professor Erasmo Pilotto (ensino integral com 4 anos de Ensino Médio), totalizando 236 respostas; o botão "Incluir Erasmo Pilotto" na barra lateral mostra a base completa.
 
-- **4.1 Tratamento dos dados**: base Tratativas, padronizações, combinações de ferramentas e faixa etária.
-- **4.2 Uso por etapa**: frequência de uso de IA no Ensino Fundamental × Médio.
-- **4.2.1 Uso × finalidade**: perguntas 1 × 3.
-- **4.2.2 Uso × dependência**: perguntas 1 × 7, também por etapa.
-- **4.2.3 Professores × atividades**: perguntas 5 × 6.
-- **4.3 Síntese dos achados**: resumo dos cruzamentos com os números atuais da planilha.
-- **4.3 Redação Paraná e proficiência**: análise exploratória por escola e etapa.
+- **5.1 Tratamento dos dados**: base Tratativas, exclusões, combinações de ferramentas, faixa etária e classes de frequência.
+- **5.3 Uso por ano de ensino**: frequência de uso de IA no Ensino Fundamental × Médio.
+- **5.3.1 Uso × finalidade**: perguntas 1 × 3.
+- **5.3.2 Uso × dependência**: perguntas 1 × 7, também por etapa.
+- **5.3.3 Uso × idade**: frequência de uso por faixa etária estimada.
+- **5.4 Professores × atividades**: perguntas 5 × 6.
+- **5.5 Redação Paraná e proficiência**: análise exploratória por escola e etapa.
 - **Exportação**: relatório TXT, planilha Excel com resumos e PDF dos gráficos.
 
 O botão **Modo apresentação** na barra lateral esconde notas e rodapés.
