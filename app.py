@@ -643,7 +643,7 @@ def leitura_automatica(resumo: pd.DataFrame, multipla: bool) -> str:
     texto = f"A resposta mais frequente foi “{primeira['resposta']}”, com <b>{pct(primeira['percentual'])}</b>"
     if len(ranking) > 1:
         segunda = ranking.iloc[1]
-        texto += f", seguida de “{segunda['resposta']}” ({pct(segunda['percentual'])}). Juntas, somam <b>{pct(primeira['percentual'] + segunda['percentual'])}</b> das respostas"
+        texto += f", seguida de “{segunda['resposta']}” ({pct(segunda['percentual'])}). Juntas, somam <b>{pct((primeira['quantidade'] + segunda['quantidade']) / resumo['quantidade'].sum() * 100)}</b> das respostas"
     texto += "."
     if primeira["percentual"] < 50:
         texto += " Nenhuma resposta alcança a maioria absoluta."
