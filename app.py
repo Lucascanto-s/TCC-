@@ -53,7 +53,7 @@ INTERPRETACOES: dict[str, str] = {
 # -----------------------------------------------------------------------------
 # Configuração visual
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="EduIA Analytics", page_icon="📘", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="EduIA Analytics", page_icon="📘", layout="wide", initial_sidebar_state="auto")
 
 st.markdown(
     f"""
@@ -470,13 +470,68 @@ def rodape(dataframe: pd.DataFrame) -> None:
     st.markdown(f'<div class="rodape">Fonte: questionário aplicado{periodo} a {len(dataframe)} estudantes de {dataframe["escola"].nunique()} escolas estaduais de Curitiba – PR. Elaboração dos autores.</div>', unsafe_allow_html=True)
 
 
+def celular() -> bool:
+    """True quando a página é aberta em um celular (pelo User-Agent do navegador)."""
+    agente = st.context.headers.get("User-Agent", "") or ""
+    return any(marca in agente for marca in ("Mobi", "Android", "iPhone"))
+
+
+def _rotulo_celular(rotulo: object, limite: int) -> str:
+    """Requebra um rótulo de eixo para tela estreita, mantendo a linha 'n = ...' quando houver."""
+    texto = str(rotulo)
+    extra = ""
+    if "<span" in texto:
+        texto, extra = texto.split("<span", 1)
+        extra = "<br><span" + extra.replace("font-size:13px", "font-size:11px")
+    texto = texto.replace("<br>", " ").strip()
+    return quebrar(texto, limite) + extra
+
+
+def adaptar_celular(figura: go.Figure) -> go.Figure:
+    """Ajusta o gráfico para telas estreitas: fontes menores, rótulos curtos e barras empilhadas na vertical."""
+    empilhado = figura.layout.barmode == "stack"
+    for traco in figura.data:
+        if traco.type == "bar" and traco.orientation == "h":
+            if empilhado:
+                modelo = (traco.hovertemplate or "").replace("%{x", "%{y")
+                traco.update(x=[_rotulo_celular(r, 11) for r in traco.y], y=list(traco.x), orientation="v",
+                             textfont=dict(size=11), hovertemplate=modelo)
+            else:
+                traco.update(y=[_rotulo_celular(r, 13) for r in traco.y], textfont=dict(size=12))
+        elif traco.type == "scatter":
+            traco.update(textfont=dict(size=10))
+            if traco.text is not None and "markers" in (traco.mode or ""):
+                # nomes curtos das escolas para os rótulos não se sobreporem
+                traco.update(text=[re.sub(r"^C\. E\. (?!do )|\s*\(n = \d+\)$", "", str(t)) for t in traco.text])
+        elif traco.type == "pie":
+            traco.update(textfont=dict(size=13))
+    if empilhado:
+        figura.update_xaxes(visible=True, autorange=True, tickfont=dict(size=11))
+        figura.update_yaxes(visible=False, autorange=False, range=[0, 100])
+        figura.update_layout(height=460, bargap=.25)
+    elif figura.data and figura.data[0].type == "bar" and figura.data[0].orientation == "h":
+        inicio, fim = figura.layout.xaxis.range or (0, 100)
+        figura.update_xaxes(range=[inicio, fim * 1.35])
+    figura.update_layout(
+        font=dict(size=12), margin=dict(l=0, r=8, t=30, b=10),
+        legend=dict(orientation="h", x=0, y=1.02, yanchor="bottom", font=dict(size=11)),
+        hoverlabel=dict(font=dict(size=12)),
+    )
+    figura.update_xaxes(tickfont=dict(size=11), title_font=dict(size=11))
+    figura.update_yaxes(tickfont=dict(size=11), title_font=dict(size=11))
+    return figura
+
+
 def mostrar(figura: go.Figure) -> None:
     """Exibe o gráfico com título em HTML (mesma fonte da página, sem cortes)."""
     titulo = figura.layout.title.text
     if titulo:
         st.markdown(f"<div class='grafico-titulo'>{titulo}</div>", unsafe_allow_html=True)
         figura.update_layout(title=None, margin=dict(t=20))
-    st.plotly_chart(figura, width="stretch", config=PLOTLY_CONFIG)
+    if celular():
+        st.plotly_chart(adaptar_celular(figura), width="stretch", config={**PLOTLY_CONFIG, "displayModeBar": False})
+    else:
+        st.plotly_chart(figura, width="stretch", config=PLOTLY_CONFIG)
 
 
 def quebrar(texto: object, limite: int = 22) -> str:
